@@ -4,7 +4,7 @@ mod utils;
 use core::{
     device::start_device_listening,
     gamepad::{start_gamepad_listing, stop_gamepad_listing},
-    prevent_default, setup,
+    prevent_default, setup, statistics,
 };
 use tauri::{Manager, WindowEvent, generate_handler};
 use tauri_plugin_autostart::MacosLauncher;
@@ -38,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(statistics::init())
         .plugin(tauri_plugin_pinia::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(prevent_default::init())

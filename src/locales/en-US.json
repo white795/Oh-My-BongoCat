@@ -129,6 +129,24 @@
           "alwaysOnTop": "Toggle whether the cat window stays on top."
         }
       },
+      "statistics": {
+        "title": "Statistics",
+        "labels": {
+          "usage": "Input Usage",
+          "today": "Today",
+          "yesterday": "Yesterday",
+          "thisWeek": "This Week",
+          "thisMonth": "This Month",
+          "total": "Total",
+          "keyboard": "Keyboard",
+          "mouse": "Mouse",
+          "activity": "Activity",
+          "dailyHistory": "Last 14 Days"
+        },
+        "hints": {
+          "localOnly": "Stored entirely on this device. Only counts are recorded, never keys or input content."
+        }
+      },
       "about": {
         "title": "About",
         "labels": {

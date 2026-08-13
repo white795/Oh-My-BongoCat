@@ -129,6 +129,24 @@
           "alwaysOnTop": "切换猫咪窗口是否置顶。"
         }
       },
+      "statistics": {
+        "title": "统计",
+        "labels": {
+          "usage": "输入用量",
+          "today": "今天",
+          "yesterday": "昨天",
+          "thisWeek": "本周",
+          "thisMonth": "本月",
+          "total": "累计",
+          "keyboard": "键盘",
+          "mouse": "鼠标",
+          "activity": "输入总量",
+          "dailyHistory": "最近 14 天"
+        },
+        "hints": {
+          "localOnly": "数据完全保存在本机，只记录次数，不记录按键或输入内容。"
+        }
+      },
       "about": {
         "title": "关于",
         "labels": {

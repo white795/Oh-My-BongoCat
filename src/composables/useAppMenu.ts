@@ -3,6 +3,7 @@ import { exit, relaunch } from '@tauri-apps/plugin-process'
 import { range } from 'es-toolkit'
 import { useI18n } from 'vue-i18n'
 
+import { flushStatisticsBeforeExit } from '@/composables/useInputStatistics'
 import { WINDOW_LABEL } from '@/constants'
 import { showWindow } from '@/plugins/window'
 import { useCatStore } from '@/stores/cat'
@@ -96,12 +97,18 @@ export function useAppMenu() {
     return await Promise.all([
       MenuItem.new({
         text: t('composables.useAppMenu.labels.restartApp'),
-        action: relaunch,
+        action: async () => {
+          await flushStatisticsBeforeExit()
+          await relaunch()
+        },
       }),
       MenuItem.new({
         text: t('composables.useAppMenu.labels.quitApp'),
         accelerator: isMac ? 'Cmd+Q' : '',
-        action: () => exit(0),
+        action: async () => {
+          await flushStatisticsBeforeExit()
+          await exit(0)
+        },
       }),
     ])
   }

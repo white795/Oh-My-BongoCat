@@ -32,8 +32,9 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell vite to ignore watching `src-tauri`
-      ignored: ['**/src-tauri/**'],
+      // 3. tell Vite to ignore Rust source and build outputs.
+      // Cargo locks Windows DLLs under `target` while compiling them.
+      ignored: ['**/src-tauri/**', '**/target/**'],
     },
   },
 }))

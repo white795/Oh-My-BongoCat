@@ -11,6 +11,7 @@ import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import VueMarkdown from 'vue-markdown-render'
 
+import { flushStatisticsBeforeExit } from '@/composables/useInputStatistics'
 import { useTauriListen } from '@/composables/useTauriListen'
 import { GITHUB_LINK, LISTEN_KEY, UPGRADE_LINK_ACCESS_KEY } from '@/constants'
 import { showWindow } from '@/plugins/window'
@@ -125,7 +126,8 @@ async function handleOk() {
       }
     })
 
-    relaunch()
+    await flushStatisticsBeforeExit()
+    await relaunch()
   } catch (error) {
     message.error(String(error))
   } finally {

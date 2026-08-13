@@ -129,6 +129,24 @@
           "alwaysOnTop": "Bật/Tắt luôn giữ cửa sổ mèo trên cùng."
         }
       },
+      "statistics": {
+        "title": "Thống kê",
+        "labels": {
+          "usage": "Mức sử dụng đầu vào",
+          "today": "Hôm nay",
+          "yesterday": "Hôm qua",
+          "thisWeek": "Tuần này",
+          "thisMonth": "Tháng này",
+          "total": "Tổng cộng",
+          "keyboard": "Bàn phím",
+          "mouse": "Chuột",
+          "activity": "Tổng hoạt động",
+          "dailyHistory": "14 ngày gần đây"
+        },
+        "hints": {
+          "localOnly": "Dữ liệu chỉ được lưu trên thiết bị này. Chỉ số lần được ghi lại, không ghi phím hoặc nội dung nhập."
+        }
+      },
       "about": {
         "title": "Giới thiệu",
         "labels": {

@@ -129,6 +129,24 @@
           "alwaysOnTop": "Alternar se a janela do gato permanece no topo."
         }
       },
+      "statistics": {
+        "title": "Estatísticas",
+        "labels": {
+          "usage": "Uso de entrada",
+          "today": "Hoje",
+          "yesterday": "Ontem",
+          "thisWeek": "Esta semana",
+          "thisMonth": "Este mês",
+          "total": "Total",
+          "keyboard": "Teclado",
+          "mouse": "Mouse",
+          "activity": "Atividade",
+          "dailyHistory": "Últimos 14 dias"
+        },
+        "hints": {
+          "localOnly": "Os dados ficam somente neste dispositivo. Apenas contagens são salvas, nunca teclas ou conteúdo digitado."
+        }
+      },
       "about": {
         "title": "Sobre",
         "labels": {

@@ -16,6 +16,7 @@ import Cat from './components/cat/index.vue'
 import General from './components/general/index.vue'
 import Model from './components/model/index.vue'
 import Shortcut from './components/shortcut/index.vue'
+import Statistics from './components/statistics/index.vue'
 
 useTray()
 const appStore = useAppStore()
@@ -53,6 +54,12 @@ const menus = computed(() => [
     label: t('pages.preference.shortcut.title'),
     icon: 'i-solar:keyboard-bold',
     component: Shortcut,
+  },
+  {
+    key: 'statistics',
+    label: t('pages.preference.statistics.title'),
+    icon: 'i-solar:chart-2-bold',
+    component: Statistics,
   },
   {
     key: 'about',

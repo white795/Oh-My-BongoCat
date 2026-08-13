@@ -129,6 +129,24 @@
           "alwaysOnTop": "切換貓咪視窗是否置頂。"
         }
       },
+      "statistics": {
+        "title": "統計",
+        "labels": {
+          "usage": "輸入用量",
+          "today": "今天",
+          "yesterday": "昨天",
+          "thisWeek": "本週",
+          "thisMonth": "本月",
+          "total": "累計",
+          "keyboard": "鍵盤",
+          "mouse": "滑鼠",
+          "activity": "輸入總量",
+          "dailyHistory": "最近 14 天"
+        },
+        "hints": {
+          "localOnly": "資料完全儲存在本機，只記錄次數，不記錄按鍵或輸入內容。"
+        }
+      },
       "about": {
         "title": "關於",
         "labels": {

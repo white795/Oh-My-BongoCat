@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 
 import ProListItem from '@/components/pro-list-item/index.vue'
 import ProList from '@/components/pro-list/index.vue'
+import { flushStatisticsBeforeExit } from '@/composables/useInputStatistics'
 import { isRunningAsAdministrator } from '@/plugins/adminStatus'
 
 const authorized = ref(true)
@@ -30,7 +31,8 @@ async function showAdministratorGuide() {
 
   if (!confirmed) return
 
-  exit(0)
+  await flushStatisticsBeforeExit()
+  await exit(0)
 }
 </script>
 
