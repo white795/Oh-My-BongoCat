@@ -1,5 +1,5 @@
 {
-  "identifier": "com.ayangweb.BongoCat",
+  "identifier": "com.white795.bongocat.stats",
   "bundle": {
     "resources": ["assets/tray-mac.png", "assets/models"]
   }
