@@ -32,7 +32,7 @@
 1. [completed] 确认个人版本 identifier、显示名称和更新策略。
 2. [completed] 隔离 identifier，并关闭自动更新的配置、运行时和 UI 入口。
 3. [completed] 执行 Tauri 配置复核；WSL 未安装 pnpm/Rust，前端与 Rust 检查改在 Windows 构建中执行。
-4. [in_progress] 已同步必要文件到 Windows 工作区，等待生成 NSIS 安装包。
+4. [completed] 已同步必要文件到 Windows 工作区，并成功生成 `BongoCat_1.1.0_x64-setup.exe`。
 5. [pending] 安装并验证个人版本的身份隔离、启动和统计持久化。
 
 ## Acceptance

@@ -2,15 +2,15 @@
 
 ## Current Focus
 
-personal Windows distribution
+idle
 
 ## Active Plan
 
-[plan-002-personal-distribution.md](plans/plan-002-personal-distribution.md)
+无
 
 ## Current Step
 
-Plan 002 进行中：个人版本配置已同步到 `D:\\VibeTool\\BongoCat`，下一步是在 Windows 原生环境构建 NSIS 安装包。
+Plan 003 已完成：设置页历史已升级为蓝色年度热力图，源码与版本 `1.2.0` 已提交；当前仅等待文档收尾提交。
 
 ## Blocked
 
@@ -18,7 +18,7 @@ Plan 002 进行中：个人版本配置已同步到 `D:\\VibeTool\\BongoCat`，�
 
 ## Evidence / Attempts
 
-- 输入统计功能已提交并由用户推送；当前工作围绕个人 Windows 安装包，不更改统计行为。
+- 个人发行版配置已于 `083ca93` 提交；用户暂缓合并与 GitHub Release。
 - 项目使用 Vue 3、Pinia、Tauri 2，并已包含 `@tauri-store/pinia`、`serde_json` 和 Tauri 文件系统插件。
 - 键鼠从 Rust `rdev` 经 `device-changed` 进入 `useDevice`；手柄从 `gilrs` 经 `gamepad-changed` 进入 `useGamepad`。
 - 当前版本的最小接入点是 `useDevice` 的键鼠 listener 入口，不应放进 `useModel`；手柄 listener 保持不变。
@@ -31,11 +31,13 @@ Plan 002 进行中：个人版本配置已同步到 `D:\\VibeTool\\BongoCat`，�
 - Windows 已通过 `cargo test -p bongo-cat statistics`、`cargo check -p bongo-cat`、`pnpm tauri dev` 及键盘/重启/损坏数据手工验证。
 - 已将所有平台的 Tauri identifier 设为 `com.white795.bongocat.stats`，保留显示名称 `BongoCat`。
 - 已移除 updater 的服务端点、Rust 注册、capability、自动检查状态与设置/托盘/关于页入口；打包不会生成 updater 产物。
-- 已同步 13 个运行时文件到 `D:\\VibeTool\\BongoCat`，并用 SHA-256 抽样确认 Windows 工作区与当前源文件一致。
+- 已同步 13 个运行时文件到 `D:\\VibeTool\\BongoCat`，并用 SHA-256 抽样确认 Windows 工作区与当前源文件一致；已成功生成 NSIS 安装包。
+- daily history 已是热力图所需的唯一数据源；热力图仅需计算最近日历周和显示强度。
+- 热力图使用 53 个周一对齐的日历周；零活动为中性色，非零活动按相对最大值的对数刻度映射到四档蓝色，未来日期隐藏。
 
 ## Next Action
 
-在 Windows PowerShell 的 `D:\\VibeTool\\BongoCat` 中执行 `pnpm.cmd tauri build --bundles nsis`，然后定位并安装生成的 `.exe`。
+如需继续个人发行版工作，恢复 [plan-002-personal-distribution.md](plans/plan-002-personal-distribution.md)，安装最新 NSIS 包并验证安装后身份隔离与统计持久化。
 
 ## Validation
 
@@ -47,7 +49,9 @@ Plan 002 进行中：个人版本配置已同步到 `D:\\VibeTool\\BongoCat`，�
 - 待执行（Plan 002）：个人版本的 Windows NSIS 打包及安装后身份隔离验证。
 - 已通过（Plan 002）：所有 Tauri JSON 配置解析、identifier/updater 静态复核和 `git diff --check`。
 - 未执行（因 WSL 缺少 pnpm/Rust）：前端测试、类型检查、lint 与 Rust 构建；Windows NSIS 构建会覆盖关键前端/Rust 编译验证。
+- 已通过（Plan 003，WSL）：`node --import tsx --test src/utils/*.test.ts`、`node_modules/.bin/tsc --noEmit`、`node_modules/.bin/eslint src`、`node_modules/.bin/vite build`、`git diff --check`。
+- 已通过（Plan 003，Windows 手工）：设置页可见周一开始的热力图；写入测试 daily data 后可观察到不同的蓝色强度。
 
 ## Queued Plans
 
-- 暂无；完成 Plan 002 后更新为 `idle`。
+- [plan-002-personal-distribution.md](plans/plan-002-personal-distribution.md)（发行版发布暂缓；NSIS 构建已完成，仍待最终安装身份验证）。

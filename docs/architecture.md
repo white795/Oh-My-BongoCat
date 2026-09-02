@@ -40,3 +40,4 @@ Controller       -> gilrs -> gamepad-changed -> useGamepad -> model / Live2D
 - Keyboard 以按下边沿计数，尽力过滤 OS key repeat。
 - Mouse 只统计按钮按下；移动、释放和当前未转发的滚轮事件不计数。
 - Controller 字段作为未来兼容预留；当前版本不修改手柄管线，因此该分类保持为 0。
+- 设置页的历史展示使用最近 53 个周一对齐日历周的热力图；每日总量相对可见区间最大值按对数刻度映射为四档蓝色，不改变统计数据或计数口径。
