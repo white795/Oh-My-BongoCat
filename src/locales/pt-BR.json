@@ -141,7 +141,7 @@
           "keyboard": "Teclado",
           "mouse": "Mouse",
           "activity": "Atividade",
-          "dailyHistory": "Últimos 14 dias"
+          "dailyHistory": "Último ano"
         },
         "hints": {
           "localOnly": "Os dados ficam somente neste dispositivo. Apenas contagens são salvas, nunca teclas ou conteúdo digitado."

@@ -4,15 +4,16 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { StatisticsAggregation } from '@/utils/statistics'
+import type { StatisticsHeatmapDay } from '@/utils/statisticsHeatmap'
 
 import { useGeneralStore } from '@/stores/general'
 import { useStatisticsStore } from '@/stores/statistics'
 import {
   activityTotal,
   aggregateStatistics,
-  getRecentDailyHistory,
   STATISTICS_SCHEMA_VERSION,
 } from '@/utils/statistics'
+import { getStatisticsHeatmap } from '@/utils/statisticsHeatmap'
 
 type PeriodKey = keyof StatisticsAggregation
 
@@ -56,19 +57,69 @@ const breakdown = computed(() => [
   },
 ])
 
-const history = computed(() => {
-  return getRecentDailyHistory(statistics.value, 14, now.value).map(item => ({
-    ...item,
-    total: activityTotal(item.counts),
-  }))
+const heatmap = computed(() => {
+  return getStatisticsHeatmap(statistics.value, 53, now.value)
 })
 
-const historyMaximum = computed(() => {
-  return Math.max(...history.value.map(item => item.total), 1)
+const heatmapWeeks = computed(() => {
+  return Array.from({ length: Math.ceil(heatmap.value.length / 7) }, (_, index) => {
+    return heatmap.value.slice(index * 7, (index + 1) * 7)
+  })
+})
+
+const heatmapGridStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${heatmapWeeks.value.length}, minmax(0, 1fr))`,
+}))
+
+const heatmapDateFormatter = computed(() => {
+  return new Intl.DateTimeFormat(generalStore.appearance.language, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+})
+
+const heatmapMonthFormatter = computed(() => {
+  return new Intl.DateTimeFormat(generalStore.appearance.language, { month: 'short' })
+})
+
+const heatmapWeekdayFormatter = computed(() => {
+  return new Intl.DateTimeFormat(generalStore.appearance.language, { weekday: 'short' })
+})
+
+const heatmapMonthLabels = computed(() => {
+  return heatmapWeeks.value.map((week) => {
+    const firstDayOfMonth = week.find(day => !day.isFuture && getDateFromKey(day.date).getDate() === 1)
+
+    return firstDayOfMonth ? heatmapMonthFormatter.value.format(getDateFromKey(firstDayOfMonth.date)) : ''
+  })
+})
+
+const heatmapWeekdayLabels = computed(() => {
+  return heatmap.value.slice(0, 7).map((day, index) => {
+    return [0, 2, 4].includes(index)
+      ? heatmapWeekdayFormatter.value.format(getDateFromKey(day.date))
+      : ''
+  })
 })
 
 function formatCount(value: number) {
   return new Intl.NumberFormat(generalStore.appearance.language).format(value)
+}
+
+function formatHeatmapTitle(day: StatisticsHeatmapDay) {
+  return [
+    heatmapDateFormatter.value.format(getDateFromKey(day.date)),
+    `${t('pages.preference.statistics.labels.activity')}: ${formatCount(day.total)}`,
+    `${t('pages.preference.statistics.labels.keyboard')}: ${formatCount(day.counts.keyboard)}`,
+    `${t('pages.preference.statistics.labels.mouse')}: ${formatCount(day.counts.mouse)}`,
+  ].join(' · ')
+}
+
+function getDateFromKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number)
+
+  return new Date(year, month - 1, day)
 }
 </script>
 
@@ -132,25 +183,109 @@ function formatCount(value: number) {
           {{ $t('pages.preference.statistics.labels.dailyHistory') }}
         </h3>
 
-        <div class="mt-3 flex flex-col gap-1.5">
+        <div class="statistics-heatmap mt-3 overflow-x-auto">
           <div
-            v-for="item in history"
-            :key="item.date"
-            class="grid grid-cols-[5.5rem_1fr_4.5rem] items-center gap-2 text-3"
+            class="min-w-180"
           >
-            <span class="tabular-nums color-text-tertiary">{{ item.date.slice(5) }}</span>
+            <div class="grid grid-cols-[2rem_minmax(0,1fr)] gap-1">
+              <span />
 
-            <div class="h-2 overflow-hidden bg-[--ant-color-fill-secondary] rounded-full">
               <div
-                class="h-full transition-all bg-blue-5 rounded-full"
-                :style="{ width: `${(item.total / historyMaximum) * 100}%` }"
-              />
+                class="grid min-h-4 gap-1 text-2.5 color-text-tertiary"
+                :style="heatmapGridStyle"
+              >
+                <span
+                  v-for="(label, index) in heatmapMonthLabels"
+                  :key="index"
+                  class="whitespace-nowrap"
+                >
+                  {{ label }}
+                </span>
+              </div>
             </div>
 
-            <span class="text-right font-medium tabular-nums">{{ formatCount(item.total) }}</span>
+            <div class="grid grid-cols-[2rem_minmax(0,1fr)] mt-1 gap-1">
+              <div class="grid grid-rows-7 gap-1 text-2.5 leading-3 color-text-tertiary">
+                <span
+                  v-for="(label, index) in heatmapWeekdayLabels"
+                  :key="index"
+                  class="h-3 truncate"
+                >
+                  {{ label }}
+                </span>
+              </div>
+
+              <div
+                class="grid gap-1"
+                :style="heatmapGridStyle"
+              >
+                <div
+                  v-for="(week, index) in heatmapWeeks"
+                  :key="index"
+                  class="grid grid-rows-7 gap-1"
+                >
+                  <div
+                    v-for="day in week"
+                    :key="day.date"
+                    :aria-label="day.isFuture ? void 0 : formatHeatmapTitle(day)"
+                    class="heatmap-cell aspect-square rounded-[2px]"
+                    :class="{ 'is-future': day.isFuture }"
+                    :data-level="day.level"
+                    role="img"
+                    :title="day.isFuture ? '' : formatHeatmapTitle(day)"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
     </div>
   </div>
 </template>
+
+<style scoped>
+.statistics-heatmap {
+  --statistics-heatmap-level-0: var(--ant-color-fill-secondary);
+  --statistics-heatmap-level-1: #dbeafe;
+  --statistics-heatmap-level-2: #93c5fd;
+  --statistics-heatmap-level-3: #3b82f6;
+  --statistics-heatmap-level-4: #1d4ed8;
+}
+
+.heatmap-cell {
+  background-color: var(--statistics-heatmap-level-0);
+}
+
+.heatmap-cell[data-level='1'] {
+  background-color: var(--statistics-heatmap-level-1);
+}
+
+.heatmap-cell[data-level='2'] {
+  background-color: var(--statistics-heatmap-level-2);
+}
+
+.heatmap-cell[data-level='3'] {
+  background-color: var(--statistics-heatmap-level-3);
+}
+
+.heatmap-cell[data-level='4'] {
+  background-color: var(--statistics-heatmap-level-4);
+}
+
+.heatmap-cell:not(.is-future):hover {
+  outline: 1px solid var(--ant-color-text-secondary);
+  outline-offset: 1px;
+}
+
+.heatmap-cell.is-future {
+  visibility: hidden;
+}
+
+:global(.dark) .statistics-heatmap {
+  --statistics-heatmap-level-1: #172554;
+  --statistics-heatmap-level-2: #1e40af;
+  --statistics-heatmap-level-3: #2563eb;
+  --statistics-heatmap-level-4: #60a5fa;
+}
+</style>

@@ -141,7 +141,7 @@
           "keyboard": "键盘",
           "mouse": "鼠标",
           "activity": "输入总量",
-          "dailyHistory": "最近 14 天"
+          "dailyHistory": "过去一年"
         },
         "hints": {
           "localOnly": "数据完全保存在本机，只记录次数，不记录按键或输入内容。"

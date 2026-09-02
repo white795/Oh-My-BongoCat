@@ -141,7 +141,7 @@
           "keyboard": "鍵盤",
           "mouse": "滑鼠",
           "activity": "輸入總量",
-          "dailyHistory": "最近 14 天"
+          "dailyHistory": "過去一年"
         },
         "hints": {
           "localOnly": "資料完全儲存在本機，只記錄次數，不記錄按鍵或輸入內容。"
