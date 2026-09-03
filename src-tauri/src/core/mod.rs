@@ -1,4 +1,6 @@
 pub mod ambient;
+#[cfg(target_os = "windows")]
+pub mod ambient_pipe;
 pub mod ambient_runtime;
 pub mod device;
 pub mod gamepad;

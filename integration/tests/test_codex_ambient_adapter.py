@@ -73,6 +73,55 @@ class CodexAmbientAdapterTests(unittest.TestCase):
             "eyJldmVudCI6IlVzZXJQcm9tcHRTdWJtaXQiLCJzZXNzaW9uSWQiOiJzZXNzaW9uLWEiLCJ0dXJuSWQiOiJ0dXJuLWEifQ",
         )
 
+    def test_dispatch_uses_the_local_pipe_without_an_executable_path(self) -> None:
+        encoded_event = (
+            "eyJldmVudCI6IlVzZXJQcm9tcHRTdWJtaXQiLCJzZXNzaW9uSWQiOiJzZXNzaW9uLWEiLCJ0dXJuSWQiOiJ0dXJuLWEifQ"
+        )
+
+        with patch.object(adapter, "_to_windows_path", return_value="D:\\bridge\\dispatch.ps1"):
+            with patch.object(adapter.subprocess, "run") as run:
+                run.return_value.returncode = 0
+
+                dispatched = adapter.dispatch_event(
+                    encoded_event,
+                    {"CODEX_AMBIENT_DISPATCHER": "/bridge/dispatch.ps1"},
+                )
+
+        self.assertTrue(dispatched)
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                adapter.POWERSHELL,
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "D:\\bridge\\dispatch.ps1",
+                "-Payload",
+                encoded_event,
+                "-PipeName",
+                adapter.AMBIENT_PIPE_NAME,
+            ],
+        )
+
+    def test_dispatch_rejects_oversized_payloads_and_untrusted_pipe_names(self) -> None:
+        with patch.object(adapter.subprocess, "run") as run:
+            self.assertFalse(
+                adapter.dispatch_event(
+                    "A" * (adapter.MAX_AMBIENT_PAYLOAD_BYTES + 1),
+                    {},
+                )
+            )
+            self.assertFalse(
+                adapter.dispatch_event(
+                    "AAAA",
+                    {"CODEX_AMBIENT_PIPE_NAME": "..\\untrusted"},
+                )
+            )
+
+        run.assert_not_called()
+
     def test_main_is_silent_and_fail_open_when_windows_dispatch_is_unavailable(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -83,7 +132,7 @@ class CodexAmbientAdapterTests(unittest.TestCase):
                 result = adapter.main(
                     ["adapter", "lifecycle"],
                     io.StringIO(payload),
-                    {"CODEX_AMBIENT_BONGOCAT_EXE": "D:\\\\VibeTool\\\\BongoCat\\\\bongo-cat.exe"},
+                    {},
                 )
 
         self.assertEqual(result, 0)

@@ -406,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "bongo-cat"
-version = "1.1.0"
+version = "1.3.1"
 dependencies = [
  "fs_extra",
  "gilrs",
@@ -433,6 +433,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "windows",
 ]
 
 [[package]]

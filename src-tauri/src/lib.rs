@@ -40,6 +40,9 @@ pub fn run() {
 
             setup::default(&app_handle, main_window.clone(), preference_window.clone());
 
+            #[cfg(target_os = "windows")]
+            core::ambient_pipe::start(app_handle.clone());
+
             Ok(())
         })
         .invoke_handler(generate_handler![

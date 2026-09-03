@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Payload,
-    [string]$BongoExecutable
+    [string]$PipeName = 'com.white795.bongocat.stats.codex-ambient'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,35 +11,36 @@ try {
         exit 0
     }
 
-    if ([string]::IsNullOrWhiteSpace($BongoExecutable)) {
+    if ($Payload.Length -gt 4096) {
         exit 0
     }
 
-    $resolvedExecutable = [System.IO.Path]::GetFullPath($BongoExecutable)
-    if (-not [System.IO.File]::Exists($resolvedExecutable)) {
+    if (
+        [string]::IsNullOrWhiteSpace($PipeName) -or
+        $PipeName.Length -gt 128 -or
+        $PipeName -notmatch '^[A-Za-z0-9._-]+$'
+    ) {
         exit 0
     }
 
-    $executable = Get-Item -LiteralPath $resolvedExecutable
-    if ($executable.Name -notin @('BongoCat.exe', 'bongo-cat.exe')) {
-        exit 0
+    $userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $resolvedPipeName = "$PipeName.$userSid"
+    $client = [System.IO.Pipes.NamedPipeClientStream]::new(
+        '.',
+        $resolvedPipeName,
+        [System.IO.Pipes.PipeDirection]::Out,
+        [System.IO.Pipes.PipeOptions]::None
+    )
+
+    try {
+        $client.Connect(500)
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Payload)
+        $client.Write($bytes, 0, $bytes.Length)
+        $client.Flush()
     }
-
-    $runningProcess = Get-CimInstance -ClassName Win32_Process -Filter "Name = '$($executable.Name)'" |
-        Where-Object {
-            $_.ExecutablePath -and [string]::Equals(
-                [System.IO.Path]::GetFullPath($_.ExecutablePath),
-                $resolvedExecutable,
-                [System.StringComparison]::OrdinalIgnoreCase
-            )
-        } |
-        Select-Object -First 1
-
-    if ($null -eq $runningProcess) {
-        exit 0
+    finally {
+        $client.Dispose()
     }
-
-    Start-Process -FilePath $resolvedExecutable -ArgumentList @('--codex-ambient-event', $Payload) -WindowStyle Hidden | Out-Null
 } catch {
     # This command runs from a Codex hook. Its failures must be silent and
     # cannot change the hook's exit status.

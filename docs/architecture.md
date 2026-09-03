@@ -15,7 +15,8 @@ BongoCat 是以桌宠交互为核心的 Tauri 桌面应用。输入统计和 Cod
 Codex 氛围灯必须保持以下不变量：
 
 - 不修改 Live2D Canvas、模型、动作、输入管线或猫窗口。
-- BongoCat 不主动监听 WSL 或 Codex CLI；Codex hook 是事件发送方。
+- BongoCat 不轮询或解析 WSL/Codex CLI；Codex hook 是事件发送方，BongoCat 只接受本机
+  named pipe 上被主动推送的最小事件。
 - 只接收事件名、session ID 和 turn ID，不接收 prompt、命令、输出或 assistant message。
 - BongoCat 未运行或功能关闭时，bridge 静默退出且不得自动启动应用。
 
@@ -59,15 +60,18 @@ Controller       -> gilrs -> gamepad-changed -> useGamepad -> model / Live2D
 ```text
 Codex lifecycle hook / legacy notify (WSL)
   -> one-shot shell/Python adapter
-  -> Windows PowerShell dispatcher
-  -> running BongoCat single-instance channel
+  -> one-shot Windows PowerShell named pipe client
+  -> elevated or standard running BongoCat pipe server
   -> Rust ambient reducer
   -> ambient window snapshot
 ```
 
 - lifecycle hook 与 legacy notify 在 adapter 层统一为
   `{ event, sessionId, turnId }`，再以严格 Base64URL 参数跨 WSL/Windows 边界传递。
-- dispatcher 只定位配置路径下已经运行的 `BongoCat.exe` 或 `bongo-cat.exe`；不匹配时无操作。
+- pipe name 由固定应用前缀与当前 Windows 用户 SID 组成；DACL 只允许该用户和 SYSTEM 访问，
+  mandatory label 允许同一用户的 medium-integrity client 写入 elevated server，并拒绝远程客户端。
+- client 不检查进程、不依赖 exe 安装路径，也不启动 BongoCat；pipe 不存在时短超时静默退出。
+- 每个连接最多接收一个 4096-byte Base64URL payload，之后仍由现有严格 schema 解码。
 - Rust reducer 生成 sequence、维护唯一 active turn、过滤迟到的 DONE，并以 compare-and-set
   保护 DONE 五秒后的 IDLE 定时器。
 - `UserPromptSubmit`、`PreToolUse`、`PostToolUse` 映射为 WORKING，`PermissionRequest` 映射为

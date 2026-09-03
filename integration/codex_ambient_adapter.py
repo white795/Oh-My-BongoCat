@@ -23,6 +23,8 @@ EVENT_NAMES = frozenset(
 )
 DISPATCH_TIMEOUT_SECONDS = 0.75
 POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+AMBIENT_PIPE_NAME = "com.white795.bongocat.stats.codex-ambient"
+MAX_AMBIENT_PAYLOAD_BYTES = 4096
 
 
 def normalize_lifecycle_payload(payload: Mapping[str, Any]) -> dict[str, str] | None:
@@ -52,19 +54,22 @@ def encode_event(event: Mapping[str, str]) -> str:
 
 
 def dispatch_event(encoded_event: str, environ: Mapping[str, str]) -> bool:
-    executable = environ.get("CODEX_AMBIENT_BONGOCAT_EXE", "")
     dispatcher = environ.get(
         "CODEX_AMBIENT_DISPATCHER",
         str(Path(__file__).with_name("codex-ambient-dispatch.ps1")),
     )
+    pipe_name = environ.get("CODEX_AMBIENT_PIPE_NAME", AMBIENT_PIPE_NAME)
 
-    if not executable or not dispatcher or not _is_base64url(encoded_event):
+    if (
+        not dispatcher
+        or not _is_base64url(encoded_event)
+        or not _is_pipe_name(pipe_name)
+    ):
         return False
 
     try:
         windows_dispatcher = _to_windows_path(dispatcher)
-        windows_executable = _to_windows_path(executable)
-        if not windows_dispatcher or not windows_executable:
+        if not windows_dispatcher:
             return False
 
         completed = subprocess.run(
@@ -78,8 +83,8 @@ def dispatch_event(encoded_event: str, environ: Mapping[str, str]) -> bool:
                 windows_dispatcher,
                 "-Payload",
                 encoded_event,
-                "-BongoExecutable",
-                windows_executable,
+                "-PipeName",
+                pipe_name,
             ],
             check=False,
             stdin=subprocess.DEVNULL,
@@ -131,11 +136,21 @@ def _normalized_event(event: Any, session_id: Any, turn_id: Any) -> dict[str, st
 
 
 def _is_base64url(value: str) -> bool:
-    return bool(value) and all(
+    return 0 < len(value) <= MAX_AMBIENT_PAYLOAD_BYTES and all(
         "A" <= character <= "Z"
         or "a" <= character <= "z"
         or "0" <= character <= "9"
         or character in "-_"
+        for character in value
+    )
+
+
+def _is_pipe_name(value: str) -> bool:
+    return 0 < len(value) <= 128 and all(
+        "A" <= character <= "Z"
+        or "a" <= character <= "z"
+        or "0" <= character <= "9"
+        or character in "._-"
         for character in value
     )
 

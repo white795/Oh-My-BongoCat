@@ -59,9 +59,8 @@ Windows NSIS 安装包通常生成在：
 D:\VibeTool\BongoCat\target\release\bundle\nsis\
 ```
 
-打包完成后仍需安装并验收实际安装版本，尤其要确认安装路径、应用身份、自启动、持久化数据和
-Codex bridge 指向的 exe 路径。开发态 bridge 当前默认指向
-`D:\VibeTool\BongoCat\target\debug\bongo-cat.exe`，不会自动改为安装版路径。
+打包完成后仍需安装并验收实际安装版本，尤其要确认应用身份、自启动、持久化数据和管理员
+BongoCat 与普通权限 Codex 的 named pipe bridge。bridge 不依赖开发版或安装版 exe 路径。
 
 ## 仓库外 Codex 配置
 
@@ -70,7 +69,10 @@ Codex ambient bridge 还依赖 WSL 用户目录中的以下文件，它们不属
 
 - `/home/devuser/.codex/hooks.json`
 - `/home/devuser/.codex/launcher.sh`
+- `/home/devuser/.codex/ambient/codex-ambient-hook.sh`
+- `/home/devuser/.codex/ambient/codex_ambient_adapter.py`
+- `/home/devuser/.codex/ambient/codex-ambient-dispatch.ps1`
 
-前者把四个 lifecycle hook 接入 `integration/codex-ambient-hook.sh`，后者把 legacy notify
-接入相同 bridge，同时保留原 Windows toast。迁移、恢复环境或切换仓库路径时，必须单独核对
-这两个文件。
+`hooks.json` 把四个 lifecycle hook 接入 `~/.codex/ambient`，`launcher.sh` 把 legacy notify
+接入相同 bridge，同时保留原 Windows toast。迁移、恢复环境或更新 bridge 协议时，必须单独
+核对并同步这些文件。

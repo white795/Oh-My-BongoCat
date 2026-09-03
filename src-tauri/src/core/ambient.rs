@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 
 pub const AMBIENT_EVENT_ARGUMENT: &str = "--codex-ambient-event";
+pub const AMBIENT_PIPE_NAME: &str = "com.white795.bongocat.stats.codex-ambient";
+pub const MAX_AMBIENT_PAYLOAD_BYTES: usize = 4096;
 pub const DONE_IDLE_DELAY_SECONDS: u64 = 5;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -241,9 +243,17 @@ pub fn parse_dispatch_request(args: &[String]) -> DispatchRequest {
         return DispatchRequest::NotAmbient;
     };
 
-    decode_ambient_event(payload)
+    decode_ambient_payload(payload.as_bytes())
         .map(DispatchRequest::Ambient)
         .unwrap_or(DispatchRequest::InvalidAmbient)
+}
+
+pub fn decode_ambient_payload(payload: &[u8]) -> Option<AmbientEvent> {
+    if payload.is_empty() || payload.len() > MAX_AMBIENT_PAYLOAD_BYTES {
+        return None;
+    }
+
+    decode_ambient_event(std::str::from_utf8(payload).ok()?)
 }
 
 #[derive(Deserialize)]
@@ -328,6 +338,28 @@ mod tests {
         }
     }
 
+    fn encode_base64url(input: &[u8]) -> String {
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let mut output = String::with_capacity(input.len().div_ceil(3) * 4);
+
+        for chunk in input.chunks(3) {
+            let value = (u32::from(chunk[0]) << 16)
+                | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+                | u32::from(*chunk.get(2).unwrap_or(&0));
+            output.push(ALPHABET[((value >> 18) & 0x3f) as usize] as char);
+            output.push(ALPHABET[((value >> 12) & 0x3f) as usize] as char);
+            if chunk.len() > 1 {
+                output.push(ALPHABET[((value >> 6) & 0x3f) as usize] as char);
+            }
+            if chunk.len() > 2 {
+                output.push(ALPHABET[(value & 0x3f) as usize] as char);
+            }
+        }
+
+        output
+    }
+
     #[test]
     fn valid_base64url_argument_decodes_to_the_normalized_event_contract() {
         assert_eq!(
@@ -365,6 +397,19 @@ mod tests {
                 DispatchRequest::InvalidAmbient
             );
         }
+    }
+
+    #[test]
+    fn pipe_payload_over_the_limit_is_rejected_before_json_reduction() {
+        let oversized_json = serde_json::json!({
+            "event": "UserPromptSubmit",
+            "sessionId": "s".repeat(MAX_AMBIENT_PAYLOAD_BYTES),
+            "turnId": "turn-a",
+        });
+        let payload = encode_base64url(oversized_json.to_string().as_bytes());
+
+        assert!(payload.len() > MAX_AMBIENT_PAYLOAD_BYTES);
+        assert_eq!(decode_ambient_payload(payload.as_bytes()), None);
     }
 
     #[test]
