@@ -51,6 +51,13 @@ watch(() => generalStore.app.autostart, async (value) => {
     >
       <Switch v-model:checked="generalStore.app.trayVisible" />
     </ProListItem>
+
+    <ProListItem
+      :description="$t('pages.preference.general.hints.codexAmbient')"
+      :title="$t('pages.preference.general.labels.codexAmbient')"
+    >
+      <Switch v-model:checked="generalStore.app.codexAmbientEnabled" />
+    </ProListItem>
   </ProList>
 
   <ProList :title="$t('pages.preference.general.labels.appearanceSettings')">

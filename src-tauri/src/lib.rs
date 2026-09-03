@@ -2,6 +2,8 @@ mod core;
 mod utils;
 
 use core::{
+    ambient::{DispatchRequest, parse_dispatch_request},
+    ambient_runtime::AmbientRuntime,
     device::start_device_listening,
     gamepad::{start_gamepad_listing, stop_gamepad_listing},
     prevent_default, setup, statistics,
@@ -13,9 +15,22 @@ use tauri_plugin_custom_window::{
 };
 use utils::fs_extra::copy_dir;
 
+#[tauri::command]
+fn set_codex_ambient_enabled(app_handle: tauri::AppHandle, enabled: bool) {
+    app_handle
+        .state::<AmbientRuntime>()
+        .set_enabled(&app_handle, enabled);
+}
+
+#[tauri::command]
+fn get_codex_ambient_snapshot(app_handle: tauri::AppHandle) -> core::ambient::AmbientSnapshot {
+    app_handle.state::<AmbientRuntime>().snapshot()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .manage(AmbientRuntime::default())
         .setup(|app| {
             let app_handle = app.handle();
 
@@ -29,6 +44,8 @@ pub fn run() {
         })
         .invoke_handler(generate_handler![
             copy_dir,
+            get_codex_ambient_snapshot,
+            set_codex_ambient_enabled,
             start_device_listening,
             start_gamepad_listing,
             stop_gamepad_listing
@@ -42,8 +59,16 @@ pub fn run() {
         .plugin(tauri_plugin_pinia::init())
         .plugin(prevent_default::init())
         .plugin(tauri_plugin_single_instance::init(
-            |app_handle, _argv, _cwd| {
-                show_preference_window(app_handle);
+            |app_handle, argv, _cwd| match parse_dispatch_request(&argv) {
+                DispatchRequest::Ambient(event) => {
+                    app_handle
+                        .state::<AmbientRuntime>()
+                        .ingest(app_handle, event);
+                }
+                DispatchRequest::InvalidAmbient => {}
+                DispatchRequest::NotAmbient => {
+                    show_preference_window(app_handle);
+                }
             },
         ))
         .plugin(

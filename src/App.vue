@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { HappyProvider } from '@antdv-next/happy-work-theme'
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { error } from '@tauri-apps/plugin-log'
 import { openUrl } from '@tauri-apps/plugin-opener'
@@ -13,7 +14,7 @@ import { RouterView } from 'vue-router'
 
 import { useTauriListen } from './composables/useTauriListen'
 import { useWindowState } from './composables/useWindowState'
-import { LANGUAGE, LISTEN_KEY } from './constants'
+import { INVOKE_KEY, LANGUAGE, LISTEN_KEY, WINDOW_LABEL } from './constants'
 import { getAntdLocale } from './locales/index.ts'
 import { hideWindow, showWindow } from './plugins/window'
 import { useAppStore } from './stores/app'
@@ -51,6 +52,16 @@ onMounted(async () => {
 watch(() => generalStore.appearance.language, (value) => {
   locale.value = value ?? LANGUAGE.EN_US
 })
+
+watch(
+  () => generalStore.app.codexAmbientEnabled,
+  async (enabled) => {
+    if (appWindow.label !== WINDOW_LABEL.MAIN) return
+
+    await invoke(INVOKE_KEY.SET_CODEX_AMBIENT_ENABLED, { enabled })
+  },
+  { immediate: true },
+)
 
 useTauriListen(LISTEN_KEY.SHOW_WINDOW, ({ payload }) => {
   if (appWindow.label !== payload) return

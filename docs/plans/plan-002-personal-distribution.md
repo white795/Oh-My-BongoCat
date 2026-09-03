@@ -1,6 +1,6 @@
 # Plan 002: Personal Windows Distribution
 
-- Status: active
+- Status: proposed
 - Summary: pending
 
 ## Goal

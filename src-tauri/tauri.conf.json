@@ -33,6 +33,23 @@
         "minWidth": 800,
         "minHeight": 600,
         "skipTaskbar": true
+      },
+      {
+        "label": "ambient",
+        "title": "BongoCat Ambient",
+        "url": "index.html/#/ambient",
+        "visible": false,
+        "width": 760,
+        "height": 56,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "focus": false,
+        "focusable": false,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "skipTaskbar": true
       }
     ],
     "security": {
