@@ -1,9 +1,15 @@
-//! Windows local IPC for Codex ambient events.
+//! Windows local IPC for ambient events (multi-session concurrent).
 //!
 //! BongoCat may run elevated for input capture while the one-shot PowerShell
 //! client remains at medium integrity. The pipe DACL is restricted to the
 //! current Windows user and its mandatory label permits medium-integrity
 //! clients from that account to write to the elevated server.
+//!
+//! The main thread always keeps one pipe instance waiting for connections.
+//! When a client connects, a short-lived handler thread reads the event and
+//! feeds it to the reducer, while the main thread immediately creates the
+//! next instance — eliminating the pipe-less window that caused silent event
+//! drops under concurrency.
 
 use std::{ffi::c_void, mem::size_of, thread, time::Duration};
 
@@ -39,6 +45,7 @@ use super::{
 };
 
 const PIPE_RETRY_DELAY: Duration = Duration::from_secs(1);
+const PIPE_MAX_INSTANCES: u32 = 16;
 
 pub fn start(app: AppHandle) {
     let result = thread::Builder::new()
@@ -61,8 +68,10 @@ fn serve(app: AppHandle) {
         }
     };
 
+    let mut is_first = true;
+
     loop {
-        let pipe = match create_pipe(&security.attributes, &security.user_sid) {
+        let pipe = match create_pipe(&security.attributes, &security.user_sid, is_first) {
             Ok(pipe) => pipe,
             Err(error) => {
                 tauri_plugin_log::log::warn!("failed to create Codex ambient pipe: {error}");
@@ -70,25 +79,37 @@ fn serve(app: AppHandle) {
                 continue;
             }
         };
+        is_first = false;
 
         if !wait_for_client(pipe.0) {
             continue;
         }
 
-        if let Some(event) = read_event(pipe.0) {
-            app.state::<AmbientRuntime>().ingest(&app, event);
-        }
+        let app = app.clone();
+        thread::spawn(move || {
+            if let Some(event) = read_event(&pipe) {
+                app.state::<AmbientRuntime>().ingest(&app, event);
+            }
+        });
     }
 }
 
-fn create_pipe(attributes: &SECURITY_ATTRIBUTES, user_sid: &str) -> Result<OwnedHandle> {
+fn create_pipe(
+    attributes: &SECURITY_ATTRIBUTES,
+    user_sid: &str,
+    first_instance: bool,
+) -> Result<OwnedHandle> {
     let path = HSTRING::from(format!(r"\\.\pipe\{AMBIENT_PIPE_NAME}.{user_sid}"));
+    let mut flags = PIPE_ACCESS_INBOUND;
+    if first_instance {
+        flags |= FILE_FLAG_FIRST_PIPE_INSTANCE;
+    }
     let handle = unsafe {
         CreateNamedPipeW(
             &path,
-            PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            flags,
             PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-            1,
+            PIPE_MAX_INSTANCES,
             0,
             (MAX_AMBIENT_PAYLOAD_BYTES + 1) as u32,
             500,
@@ -110,10 +131,10 @@ fn wait_for_client(pipe: HANDLE) -> bool {
     }
 }
 
-fn read_event(pipe: HANDLE) -> Option<super::ambient::AmbientEvent> {
+fn read_event(pipe: &OwnedHandle) -> Option<super::ambient::AmbientEvent> {
     let mut buffer = [0_u8; MAX_AMBIENT_PAYLOAD_BYTES + 1];
     let mut bytes_read = 0_u32;
-    let result = unsafe { ReadFile(pipe, Some(&mut buffer), Some(&mut bytes_read), None) };
+    let result = unsafe { ReadFile(pipe.0, Some(&mut buffer), Some(&mut bytes_read), None) };
     let length = bytes_read as usize;
 
     if result.is_err() || length == 0 || length > MAX_AMBIENT_PAYLOAD_BYTES {
@@ -202,6 +223,10 @@ fn current_user_sid() -> Result<String> {
 }
 
 struct OwnedHandle(HANDLE);
+
+// SAFETY: Windows handles are process-wide identifiers safe to use from any
+// thread. We transfer exclusive ownership into the handler thread.
+unsafe impl Send for OwnedHandle {}
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {

@@ -2,7 +2,7 @@
 
 ## Product Boundary
 
-BongoCat 是以桌宠交互为核心的 Tauri 桌面应用。输入统计和 Codex 氛围灯是相互独立的附加
+BongoCat 是以桌宠交互为核心的 Tauri 桌面应用。输入统计和 Agent 氛围灯是相互独立的附加
 能力，不能改变 Live2D 桌宠的渲染与交互。
 
 输入统计必须保持以下不变量：
@@ -12,12 +12,13 @@ BongoCat 是以桌宠交互为核心的 Tauri 桌面应用。输入统计和 Cod
 - 只保存 keyboard、mouse、controller 的次数，不保存按键、按钮或文本内容。
 - 数据完全保存在本地，不增加遥测、账号、网络服务或数据库。
 
-Codex 氛围灯必须保持以下不变量：
+Agent 氛围灯必须保持以下不变量：
 
 - 不修改 Live2D Canvas、模型、动作、输入管线或猫窗口。
-- BongoCat 不轮询或解析 WSL/Codex CLI；Codex hook 是事件发送方，BongoCat 只接受本机
-  named pipe 上被主动推送的最小事件。
-- 只接收事件名、session ID 和 turn ID，不接收 prompt、命令、输出或 assistant message。
+- BongoCat 不轮询或解析 WSL 中的 agent CLI；Codex 与 Claude Code hook 是事件发送方，
+  BongoCat 只接受本机 named pipe 上被主动推送的最小事件。
+- 只接收事件名、session ID、turn ID 和 agent 来源，不接收 prompt、命令、输出或
+  assistant message。
 - BongoCat 未运行或功能关闭时，bridge 静默退出且不得自动启动应用。
 
 ## Runtime Components
@@ -26,7 +27,7 @@ Codex 氛围灯必须保持以下不变量：
 - 主窗口的 Vue composables 消费输入事件并驱动模型、Live2D 和按键贴图。
 - 设置窗口使用独立的 Vue Webview，通过 Pinia/Tauri store 与主窗口同步状态。
 - 两个窗口在应用启动时都加载现有 Pinia stores；窗口关闭只会隐藏窗口，应用继续运行。
-- Codex 氛围灯使用独立的透明 Tauri 窗口和 Vue renderer，不加载 Live2D 页面。
+- Agent 氛围灯使用独立的透明 Tauri 窗口和 Vue renderer，不加载 Live2D 页面。
 - Rust ambient runtime 持有唯一状态，并向氛围窗口发布 snapshot；renderer 只负责动画。
 
 ## Input Data Flow
@@ -55,27 +56,32 @@ Controller       -> gilrs -> gamepad-changed -> useGamepad -> model / Live2D
 - Controller 字段作为未来兼容预留；当前版本不修改手柄管线，因此该分类保持为 0。
 - 设置页的历史展示使用最近 53 个周一对齐日历周的热力图；每日总量相对可见区间最大值按对数刻度映射为四档蓝色，不改变统计数据或计数口径。
 
-## Codex Ambient Data Flow
+## Agent Ambient Data Flow
 
 ```text
-Codex lifecycle hook / legacy notify (WSL)
-  -> one-shot shell/Python adapter
+Codex lifecycle hook / legacy notify ─┐
+Claude Code lifecycle hook ───────────┴─> one-shot shell/Python adapter
   -> one-shot Windows PowerShell named pipe client
   -> elevated or standard running BongoCat pipe server
-  -> Rust ambient reducer
-  -> ambient window snapshot
+  -> Rust multi-session ambient reducer
+  -> snapshot v2
+  -> ambient window renderer
 ```
 
-- lifecycle hook 与 legacy notify 在 adapter 层统一为
-  `{ event, sessionId, turnId }`，再以严格 Base64URL 参数跨 WSL/Windows 边界传递。
+- Codex 与 Claude Code 使用彼此独立的 adapter，在协议边界统一为
+  `{ event, sessionId, turnId, source }`，再以严格 Base64URL 参数跨 WSL/Windows 边界传递；
+  缺少 `source` 的旧 payload 默认视为 Codex。
 - pipe name 由固定应用前缀与当前 Windows 用户 SID 组成；DACL 只允许该用户和 SYSTEM 访问，
   mandatory label 允许同一用户的 medium-integrity client 写入 elevated server，并拒绝远程客户端。
 - client 不检查进程、不依赖 exe 安装路径，也不启动 BongoCat；pipe 不存在时短超时静默退出。
-- 每个连接最多接收一个 4096-byte Base64URL payload，之后仍由现有严格 schema 解码。
-- Rust reducer 生成 sequence、维护唯一 active turn、过滤迟到的 DONE，并以 compare-and-set
-  保护 DONE 五秒后的 IDLE 定时器。
+- named pipe 最多允许 16 个并发实例，每个连接只接收一个不超过 4096-byte 的 Base64URL
+  payload，之后由严格 schema 解码。
+- Rust reducer 是唯一状态真相源：sequence 只在进程内生成，槽位按 `sessionId` 聚合，
+  `turnId` 只用于每槽位的迟到事件守卫；状态更新、snapshot 发布和窗口显隐按同一顺序串行化。
 - `UserPromptSubmit`、`PreToolUse`、`PostToolUse` 映射为 WORKING，`PermissionRequest` 映射为
-  WAITING，legacy `agent-turn-complete` 映射为 DONE，之后自动回到 IDLE。
+  WAITING，`agent-turn-complete` 映射为常驻 DONE，`session-end` 立即删除对应槽位。
+- 每个槽位在同会话下一回合开始时复用；无法产生 `SessionEnd` 的异常退出由 15 分钟 TTL
+  最终驱逐。snapshot v2 暴露会话数组，前端最多渲染五颗星并显示溢出计数。
 - 氛围灯开关由现有 Pinia/Tauri 持久化体系保存；关闭时隐藏窗口并忽略事件。
 - ambient 窗口拥有独立的置顶、鼠标穿透与任务栏上沿定位策略，不能复用仅管理主猫 HWND 的
   Windows 置顶循环。

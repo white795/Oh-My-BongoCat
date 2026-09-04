@@ -62,10 +62,12 @@ D:\VibeTool\BongoCat\target\release\bundle\nsis\
 打包完成后仍需安装并验收实际安装版本，尤其要确认应用身份、自启动、持久化数据和管理员
 BongoCat 与普通权限 Codex 的 named pipe bridge。bridge 不依赖开发版或安装版 exe 路径。
 
-## 仓库外 Codex 配置
+## 仓库外 agent 配置
 
-Codex ambient bridge 还依赖 WSL 用户目录中的以下文件，它们不属于本 Git 仓库，提交代码时
-不会被一起保存：
+氛围灯有两条互相独立的 bridge，它们依赖 WSL 用户目录中的以下文件。这些文件不属于本 Git
+仓库，提交代码时不会被一起保存。
+
+Codex：
 
 - `/home/devuser/.codex/hooks.json`
 - `/home/devuser/.codex/launcher.sh`
@@ -74,5 +76,18 @@ Codex ambient bridge 还依赖 WSL 用户目录中的以下文件，它们不属
 - `/home/devuser/.codex/ambient/codex-ambient-dispatch.ps1`
 
 `hooks.json` 把四个 lifecycle hook 接入 `~/.codex/ambient`，`launcher.sh` 把 legacy notify
-接入相同 bridge，同时保留原 Windows toast。迁移、恢复环境或更新 bridge 协议时，必须单独
-核对并同步这些文件。
+接入相同 bridge，同时保留原 Windows toast。
+
+Claude Code：
+
+- `/home/devuser/.claude/settings.json`（`hooks` 字段，8 个事件）
+- `/home/devuser/.claude/ambient/claude-ambient-hook.sh`
+- `/home/devuser/.claude/ambient/claude_ambient_adapter.py`
+- `/home/devuser/.claude/ambient/claude-ambient-dispatch.ps1`
+
+两条 bridge 的三个文件是**故意不共享代码**的独立副本：两种 agent 的 payload 形状与生命周期
+不同，隔离后修一侧永远不会回归另一侧，也不必每次改动都做双向回归。修改任一侧的 bridge
+协议时，只需同步该侧的仓库副本。
+
+`settings.json` 同时含 `ANTHROPIC_AUTH_TOKEN`，编辑时应程序化改写而不是整文件覆盖，避免把
+密钥回显到日志或对话中。迁移或恢复环境时，必须单独核对并同步以上全部文件。

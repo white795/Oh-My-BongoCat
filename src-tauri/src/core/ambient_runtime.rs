@@ -1,8 +1,7 @@
-//! Tauri-facing runtime for the Codex ambient reducer.
+//! Tauri-facing runtime for the multi-session ambient reducer.
 //!
 //! The pure reducer remains in `ambient`; this module only owns process-local
-//! synchronization, window visibility, snapshot fan-out, and the delayed DONE
-//! settlement.
+//! synchronization, window visibility, snapshot fan-out, and the TTL sweeper.
 
 use std::{
     sync::{
@@ -16,8 +15,8 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime, WebviewWindow};
 
 use super::ambient::{
-    AmbientEvent, AmbientReducer, AmbientSnapshot, AmbientStatus, DONE_IDLE_DELAY_SECONDS,
-    DoneSettlement,
+    AmbientEvent, AmbientReducer, AmbientSnapshot, AmbientStatus, SWEEPER_INTERVAL_SECONDS,
+    TTL_SECONDS,
 };
 
 pub const AMBIENT_SNAPSHOT_EVENT: &str = "codex-ambient-snapshot";
@@ -27,10 +26,17 @@ pub const AMBIENT_WINDOW_LABEL: &str = "ambient";
 pub struct AmbientRuntime {
     enabled: AtomicBool,
     reducer: Mutex<AmbientReducer>,
+    /// Serializes state changes with snapshot publication. Pipe clients are
+    /// handled concurrently, so reducer locking alone is insufficient: an
+    /// older snapshot could otherwise publish after a newer one and apply a
+    /// stale window show/hide operation.
+    update_lock: Mutex<()>,
+    sweeper_started: AtomicBool,
 }
 
 impl AmbientRuntime {
     pub fn set_enabled<R: Runtime>(&self, app: &AppHandle<R>, enabled: bool) {
+        let _update = self.update_guard();
         self.enabled.store(enabled, Ordering::SeqCst);
 
         let snapshot = if enabled {
@@ -47,6 +53,8 @@ impl AmbientRuntime {
     }
 
     pub fn ingest<R: Runtime>(&self, app: &AppHandle<R>, event: AmbientEvent) {
+        let _update = self.update_guard();
+
         if !self.enabled.load(Ordering::SeqCst) {
             return;
         }
@@ -57,20 +65,37 @@ impl AmbientRuntime {
         }
 
         self.publish(app, &applied.snapshot);
-
-        if let Some(settlement) = applied.done_settlement {
-            self.schedule_done_settlement(app, settlement);
-        }
+        self.ensure_sweeper(app);
     }
 
-    fn settle_done_if_current<R: Runtime>(&self, app: &AppHandle<R>, settlement: DoneSettlement) {
-        if !self.enabled.load(Ordering::SeqCst) {
+    fn ensure_sweeper<R: Runtime>(&self, app: &AppHandle<R>) {
+        if self
+            .sweeper_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             return;
         }
 
-        if let Some(snapshot) = self.reducer().settle_done_if_current(settlement) {
-            self.publish(app, &snapshot);
-        }
+        let app = app.clone();
+        thread::spawn(move || {
+            let ttl = Duration::from_secs(TTL_SECONDS);
+            let interval = Duration::from_secs(SWEEPER_INTERVAL_SECONDS);
+
+            loop {
+                thread::sleep(interval);
+
+                let runtime = app.state::<AmbientRuntime>();
+                let _update = runtime.update_guard();
+                if !runtime.enabled.load(Ordering::SeqCst) {
+                    continue;
+                }
+
+                if let Some(snapshot) = runtime.reducer().evict_stale(ttl) {
+                    runtime.publish(&app, &snapshot);
+                }
+            }
+        });
     }
 
     fn reducer(&self) -> MutexGuard<'_, AmbientReducer> {
@@ -79,14 +104,10 @@ impl AmbientRuntime {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn schedule_done_settlement<R: Runtime>(&self, app: &AppHandle<R>, settlement: DoneSettlement) {
-        let app = app.clone();
-
-        thread::spawn(move || {
-            thread::sleep(Duration::from_secs(DONE_IDLE_DELAY_SECONDS));
-            app.state::<AmbientRuntime>()
-                .settle_done_if_current(&app, settlement);
-        });
+    fn update_guard(&self) -> MutexGuard<'_, ()> {
+        self.update_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn publish<R: Runtime>(&self, app: &AppHandle<R>, snapshot: &AmbientSnapshot) {
