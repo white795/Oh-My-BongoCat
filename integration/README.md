@@ -6,10 +6,19 @@ Windows BongoCat。它不是常驻服务，也不开放网络端口。
 ## Runtime flow
 
 ```text
-Codex -> codex-ambient-hook.sh -> codex_ambient_adapter.py
-      -> codex-ambient-dispatch.ps1 -> per-user Windows named pipe
+Codex/Claude Code hook
+      -> *-ambient-hook.sh -> *_ambient_adapter.py
+      -> unix socket (/run/user/1000/bongocat-ambient-relay.sock)
+      -> bongocat-ambient-relay (WSL daemon, systemd socket activation)
+      -> bongocat-ambient-dispatch.ps1 (batched payloads)
+      -> per-user Windows named pipe
       -> running BongoCat ambient runtime (multi-slot reducer)
 ```
+
+relay daemon 在 WSL 侧按 `session_id` 聚合事件，优先级去抖后批量跨界传输。IMMEDIATE 事件
+（`UserPromptSubmit`、`PermissionRequest`、`session-end`）立即 flush，LOW_PRIORITY 事件
+（`PreToolUse`、`PostToolUse`）2 秒窗口合并。单次 flush 启动一个 PowerShell 进程处理所有
+会话事件，进程启动成本与会话数量解耦。
 
 BongoCat 必须已经运行并启用“Agent 氛围灯”。named pipe 不存在、功能关闭或输入无效时，
 bridge 静默退出，不会启动 BongoCat，也不会让 Codex hook 失败。PowerShell client 不需要管理员

@@ -1,0 +1,9 @@
+[Unit]
+Description=BongoCat Ambient Relay Daemon
+Requires=bongocat-ambient-relay.socket
+
+[Service]
+Type=notify
+ExecStart=%h/.local/bin/bongocat-ambient-relay
+Restart=on-failure
+TimeoutStopSec=5

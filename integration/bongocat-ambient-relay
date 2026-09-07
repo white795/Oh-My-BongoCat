@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+"""WSL relay daemon that merges ambient hook events and batches Windows dispatch.
+
+Eliminates PowerShell cold-start overhead by:
+- Aggregating events per session_id (state table, not event log)
+- Priority debouncing: immediate flush for blocking events, 2s window for noise
+- Batch dispatch: one PowerShell process writes N payloads to N pipe connections
+
+Launched on-demand by systemd socket activation, auto-exits after 30s idle.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import selectors
+import socket
+import subprocess
+import sys
+import time
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any, TextIO
+
+IMMEDIATE_EVENTS = frozenset({
+    "UserPromptSubmit",      # User expects immediate star appearance
+    "PermissionRequest",     # Red waiting state, user blocked
+    "session-end",           # Star disappears, immediate feedback
+    "SessionEnd",            # Alternative naming (not yet used but reserved)
+})
+
+LOW_PRIORITY_EVENTS = frozenset({
+    "PreToolUse",            # High-frequency noise, only final state matters
+    "PostToolUse",
+    "PostToolUseFailure",
+    "agent-turn-complete",   # Codex DONE - debounce to reduce PS calls
+    "Stop",                  # Final green state, can wait
+    "StopFailure",
+})
+
+DEBOUNCE_WINDOW_SECONDS = 2.0
+IDLE_EXIT_SECONDS = 30.0
+DISPATCH_TIMEOUT_SECONDS = 10.0
+POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+MAX_PAYLOAD_BYTES = 4096
+
+
+class PendingEvent:
+    __slots__ = ("event", "session_id", "turn_id", "source", "received_at")
+
+    def __init__(
+        self,
+        event: str,
+        session_id: str,
+        turn_id: str,
+        source: str,
+        received_at: float,
+    ):
+        self.event = event
+        self.session_id = session_id
+        self.turn_id = turn_id
+        self.source = source
+        self.received_at = received_at
+
+
+class RelayDaemon:
+    def __init__(
+        self,
+        sock_path: str,
+        dispatcher: str,
+    ):
+        self.sock_path = sock_path
+        self.dispatcher = dispatcher
+
+        self.state: dict[str, PendingEvent] = {}
+        self.dirty = False
+        self.last_activity = time.monotonic()
+        self.last_flush = time.monotonic()
+
+    def run(self, listen_socket: socket.socket) -> None:
+        listen_socket.setblocking(False)
+        selector = selectors.DefaultSelector()
+        selector.register(listen_socket, selectors.EVENT_READ)
+
+        self._sd_notify("READY=1")
+
+        while True:
+            now = time.monotonic()
+            idle_duration = now - self.last_activity
+
+            if idle_duration >= IDLE_EXIT_SECONDS:
+                break
+
+            # Check debounce window
+            if self.dirty and (now - self.last_flush) >= DEBOUNCE_WINDOW_SECONDS:
+                self._flush_batch()
+
+            timeout = min(
+                DEBOUNCE_WINDOW_SECONDS - (now - self.last_flush),
+                IDLE_EXIT_SECONDS - idle_duration,
+                1.0,
+            )
+            timeout = max(timeout, 0.1)
+
+            events = selector.select(timeout=timeout)
+            for key, _ in events:
+                if key.fileobj == listen_socket:
+                    self._accept_connection(listen_socket)
+
+        selector.close()
+
+    def _accept_connection(self, listen_socket: socket.socket) -> None:
+        try:
+            client, _ = listen_socket.accept()
+        except (OSError, socket.error):
+            return
+
+        try:
+            client.settimeout(1.0)
+            data = client.recv(MAX_PAYLOAD_BYTES + 256)
+            if not data:
+                return
+
+            self.last_activity = time.monotonic()
+            lines = data.decode("utf-8", errors="ignore").strip().split("\n")
+
+            for line in lines:
+                line = line.strip()
+                if line:
+                    self._handle_payload(line)
+        except Exception:
+            pass
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    def _handle_payload(self, encoded: str) -> None:
+        try:
+            decoded = base64.urlsafe_b64decode(encoded + "===")
+            payload = json.loads(decoded.decode("utf-8"))
+        except Exception:
+            return
+
+        if not isinstance(payload, dict):
+            return
+
+        event = payload.get("event")
+        session_id = payload.get("sessionId")
+        turn_id = payload.get("turnId")
+        source = payload.get("source", "codex")
+
+        if not all(isinstance(v, str) and v.strip() for v in (event, session_id, turn_id)):
+            return
+
+        # Check if this is session-end: immediate flush then remove from state
+        if event == "session-end":
+            pending = PendingEvent(event, session_id, turn_id, source, time.time())
+            self.state[session_id] = pending
+            self._flush_batch()
+            self.state.pop(session_id, None)
+            return
+
+        # Update state table (last-write-wins)
+        pending = PendingEvent(event, session_id, turn_id, source, time.time())
+        self.state[session_id] = pending
+        self.dirty = True
+
+        # Immediate flush for high-priority events
+        if event in IMMEDIATE_EVENTS:
+            self._flush_batch()
+
+    def _flush_batch(self) -> None:
+        if not self.state:
+            self.dirty = False
+            return
+
+        payloads: list[str] = []
+
+        for pending in self.state.values():
+            payload_dict = {
+                "event": pending.event,
+                "sessionId": pending.session_id,
+                "turnId": pending.turn_id,
+                "source": pending.source,
+            }
+            encoded_json = json.dumps(payload_dict, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            encoded_payload = base64.urlsafe_b64encode(encoded_json).decode("ascii").rstrip("=")
+            payloads.append(encoded_payload)
+
+        self._dispatch_batch(payloads)
+
+        # Clear state table after successful flush
+        self.state.clear()
+        self.dirty = False
+        self.last_flush = time.monotonic()
+
+    def _dispatch_batch(self, payloads: list[str]) -> None:
+        if not payloads:
+            return
+
+        # Group payloads by source to route to correct pipe
+        by_source: dict[str, list[str]] = {}
+        for payload in payloads:
+            try:
+                decoded = base64.urlsafe_b64decode(payload + "==")
+                data = json.loads(decoded)
+                source = data.get("source", "codex")  # fallback to codex for legacy
+                by_source.setdefault(source, []).append(payload)
+            except Exception:
+                continue  # Skip malformed payloads
+
+        # Both sources use the same pipe — BongoCat distinguishes by the "source" field
+        # (BongoCat only has one pipe server: codex-ambient, but accepts both sources)
+        pipe_map = {
+            "claude": "com.white795.bongocat.stats.codex-ambient",
+            "codex": "com.white795.bongocat.stats.codex-ambient",
+        }
+
+        for source, source_payloads in by_source.items():
+            pipe_name = pipe_map.get(source)
+            if not pipe_name:
+                continue
+
+            try:
+                windows_dispatcher = self._to_windows_path(self.dispatcher)
+                if not windows_dispatcher:
+                    continue
+
+                # PowerShell array parameter: pass each payload as separate argument after -Payloads
+                cmd = [
+                    POWERSHELL,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    windows_dispatcher,
+                    "-Payloads",
+                ]
+                cmd.extend(source_payloads)
+                cmd.extend(["-PipeName", pipe_name])
+
+                subprocess.run(
+                    cmd,
+                    check=False,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=DISPATCH_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                pass
+
+    def _to_windows_path(self, path: str) -> str | None:
+        if not path.startswith("/"):
+            return path
+
+        try:
+            result = subprocess.run(
+                ["wslpath", "-w", path],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip() or None
+        except Exception:
+            pass
+        return None
+
+    def _sd_notify(self, message: str) -> None:
+        notify_socket = os.environ.get("NOTIFY_SOCKET")
+        if not notify_socket:
+            return
+
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            sock.sendto(message.encode("utf-8"), notify_socket)
+            sock.close()
+        except Exception:
+            pass
+
+
+def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None) -> int:
+    environment = environ if environ is not None else os.environ
+
+    sock_path = os.path.join(
+        environment.get("XDG_RUNTIME_DIR", "/run/user/1000"),
+        "bongocat-ambient-relay.sock",
+    )
+
+    # systemd socket activation: fd 3 is the listening socket
+    listen_fd = environment.get("LISTEN_FDS")
+    if listen_fd == "1":
+        listen_socket = socket.socket(fileno=3)
+    else:
+        # Fallback: create socket manually (for testing)
+        if os.path.exists(sock_path):
+            os.unlink(sock_path)
+        listen_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listen_socket.bind(sock_path)
+        listen_socket.listen(16)
+        os.chmod(sock_path, 0o600)
+
+    base_dir = Path(__file__).parent
+    dispatcher = str(base_dir / "bongocat-ambient-dispatch.ps1")
+
+    daemon = RelayDaemon(sock_path, dispatcher)
+
+    try:
+        daemon.run(listen_socket)
+    finally:
+        listen_socket.close()
+        if listen_fd != "1" and os.path.exists(sock_path):
+            os.unlink(sock_path)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

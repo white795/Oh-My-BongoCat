@@ -73,54 +73,41 @@ class CodexAmbientAdapterTests(unittest.TestCase):
             "eyJldmVudCI6IlVzZXJQcm9tcHRTdWJtaXQiLCJzZXNzaW9uSWQiOiJzZXNzaW9uLWEiLCJ0dXJuSWQiOiJ0dXJuLWEifQ",
         )
 
-    def test_dispatch_uses_the_local_pipe_without_an_executable_path(self) -> None:
+    def test_dispatch_writes_to_unix_socket(self) -> None:
+        import socket
+        from unittest.mock import MagicMock
+
         encoded_event = (
             "eyJldmVudCI6IlVzZXJQcm9tcHRTdWJtaXQiLCJzZXNzaW9uSWQiOiJzZXNzaW9uLWEiLCJ0dXJuSWQiOiJ0dXJuLWEifQ"
         )
 
-        with patch.object(adapter, "_to_windows_path", return_value="D:\\bridge\\dispatch.ps1"):
-            with patch.object(adapter.subprocess, "run") as run:
-                run.return_value.returncode = 0
+        mock_socket = MagicMock()
+        with patch.object(socket, "socket", return_value=mock_socket):
+            mock_socket.__enter__ = MagicMock(return_value=mock_socket)
+            mock_socket.__exit__ = MagicMock(return_value=False)
 
-                dispatched = adapter.dispatch_event(
-                    encoded_event,
-                    {"CODEX_AMBIENT_DISPATCHER": "/bridge/dispatch.ps1"},
-                )
+            dispatched = adapter.dispatch_event(
+                encoded_event,
+                {"XDG_RUNTIME_DIR": "/run/user/1000"},
+            )
 
         self.assertTrue(dispatched)
-        self.assertEqual(
-            run.call_args.args[0],
-            [
-                adapter.POWERSHELL,
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                "D:\\bridge\\dispatch.ps1",
-                "-Payload",
-                encoded_event,
-                "-PipeName",
-                adapter.AMBIENT_PIPE_NAME,
-            ],
-        )
+        mock_socket.settimeout.assert_called_once_with(1.0)
+        mock_socket.connect.assert_called_once_with("/run/user/1000/bongocat-ambient-relay.sock")
+        mock_socket.sendall.assert_called_once_with(encoded_event.encode("utf-8") + b"\n")
 
-    def test_dispatch_rejects_oversized_payloads_and_untrusted_pipe_names(self) -> None:
-        with patch.object(adapter.subprocess, "run") as run:
+    def test_dispatch_rejects_oversized_payloads(self) -> None:
+        import socket
+
+        with patch.object(socket, "socket") as mock_socket_cls:
             self.assertFalse(
                 adapter.dispatch_event(
                     "A" * (adapter.MAX_AMBIENT_PAYLOAD_BYTES + 1),
                     {},
                 )
             )
-            self.assertFalse(
-                adapter.dispatch_event(
-                    "AAAA",
-                    {"CODEX_AMBIENT_PIPE_NAME": "..\\untrusted"},
-                )
-            )
 
-        run.assert_not_called()
+        mock_socket_cls.assert_not_called()
 
     def test_main_is_silent_and_fail_open_when_windows_dispatch_is_unavailable(self) -> None:
         stdout = io.StringIO()

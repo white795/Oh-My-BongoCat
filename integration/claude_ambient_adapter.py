@@ -28,10 +28,9 @@ from __future__ import annotations
 import base64
 import json
 import os
-import subprocess
+import socket
 import sys
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, TextIO
 
 # Claude Code hook name -> ambient protocol event accepted by BongoCat.
@@ -46,11 +45,6 @@ EVENT_TRANSLATIONS = {
     "SessionEnd": "session-end",
 }
 
-# PowerShell cold start can exceed a sub-second budget on a busy machine, and a
-# dropped DONE leaves a stuck indicator.
-DISPATCH_TIMEOUT_SECONDS = 2.0
-POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
-AMBIENT_PIPE_NAME = "com.white795.bongocat.stats.codex-ambient"
 AMBIENT_SOURCE = "claude"
 MAX_AMBIENT_PAYLOAD_BYTES = 4096
 
@@ -93,42 +87,22 @@ def encode_event(event: Mapping[str, str]) -> str:
 
 
 def dispatch_event(encoded_event: str, environ: Mapping[str, str]) -> bool:
-    dispatcher = environ.get(
-        "CLAUDE_AMBIENT_DISPATCHER",
-        str(Path(__file__).with_name("claude-ambient-dispatch.ps1")),
+    sock_path = os.path.join(
+        environ.get('XDG_RUNTIME_DIR', '/run/user/1000'),
+        'bongocat-ambient-relay.sock'
     )
-    pipe_name = environ.get("CLAUDE_AMBIENT_PIPE_NAME", AMBIENT_PIPE_NAME)
 
-    if not dispatcher or not _is_base64url(encoded_event) or not _is_pipe_name(pipe_name):
+    if not _is_base64url(encoded_event):
         return False
 
     try:
-        windows_dispatcher = _to_windows_path(dispatcher)
-        if not windows_dispatcher:
-            return False
-
-        completed = subprocess.run(
-            [
-                POWERSHELL,
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                windows_dispatcher,
-                "-Payload",
-                encoded_event,
-                "-PipeName",
-                pipe_name,
-            ],
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=DISPATCH_TIMEOUT_SECONDS,
-        )
-        return completed.returncode == 0
-    except (OSError, subprocess.SubprocessError):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            s.connect(sock_path)
+            s.sendall(encoded_event.encode('utf-8') + b'\n')
+        return True
+    except (FileNotFoundError, ConnectionRefusedError, socket.timeout, OSError):
+        # Relay not running or busy — fail-open
         return False
 
 
@@ -161,32 +135,6 @@ def _is_base64url(value: str) -> bool:
         or character in "-_"
         for character in value
     )
-
-
-def _is_pipe_name(value: str) -> bool:
-    return 0 < len(value) <= 128 and all(
-        "A" <= character <= "Z"
-        or "a" <= character <= "z"
-        or "0" <= character <= "9"
-        or character in "._-"
-        for character in value
-    )
-
-
-def _to_windows_path(path: str) -> str | None:
-    if not path.startswith("/"):
-        return path
-
-    converted = subprocess.run(
-        ["wslpath", "-w", path],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=DISPATCH_TIMEOUT_SECONDS,
-    )
-    if converted.returncode != 0:
-        return None
-    return converted.stdout.strip() or None
 
 
 if __name__ == "__main__":

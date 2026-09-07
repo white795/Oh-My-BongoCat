@@ -1,0 +1,9 @@
+[Unit]
+Description=BongoCat Ambient Relay Socket
+
+[Socket]
+ListenStream=%t/bongocat-ambient-relay.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target
