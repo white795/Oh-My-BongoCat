@@ -59,7 +59,7 @@ Controller       -> gilrs -> gamepad-changed -> useGamepad -> model / Live2D
 ## Agent Ambient Data Flow
 
 ```text
-Codex lifecycle hook / legacy notify ─┐
+Codex lifecycle hook ─────────────────┐
 Claude Code lifecycle hook ───────────┴─> one-shot shell/Python adapter
   -> one-shot Windows PowerShell named pipe client
   -> elevated or standard running BongoCat pipe server
@@ -79,7 +79,10 @@ Claude Code lifecycle hook ───────────┴─> one-shot she
 - Rust reducer 是唯一状态真相源：sequence 只在进程内生成，槽位按 `sessionId` 聚合，
   `turnId` 只用于每槽位的迟到事件守卫；状态更新、snapshot 发布和窗口显隐按同一顺序串行化。
 - `UserPromptSubmit`、`PreToolUse`、`PostToolUse` 映射为 WORKING，`PermissionRequest` 映射为
-  WAITING，`agent-turn-complete` 映射为常驻 DONE，`session-end` 立即删除对应槽位。
+  WAITING；Codex `Stop` 和 Claude `Stop` / `StopFailure` 在各自 adapter 中归一化为
+  `agent-turn-complete`（常驻 DONE），`SessionEnd` 归一化为 `session-end` 并立即删除对应槽位。
+- Codex legacy notify 只保留 Windows toast，不进入 ambient bridge。`/recap` 等非回合生命周期
+  通知因此不能创建或改变会话槽位。
 - 每个槽位在同会话下一回合开始时复用；无法产生 `SessionEnd` 的异常退出由 15 分钟 TTL
   最终驱逐。snapshot v2 暴露会话数组，前端最多渲染五颗星并显示溢出计数。
 - 氛围灯开关由现有 Pinia/Tauri 持久化体系保存；关闭时隐藏窗口并忽略事件。

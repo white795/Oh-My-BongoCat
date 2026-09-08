@@ -11,31 +11,31 @@ import sys
 from collections.abc import Mapping
 from typing import Any, TextIO
 
-EVENT_NAMES = frozenset(
-    {
-        "UserPromptSubmit",
-        "PreToolUse",
-        "PermissionRequest",
-        "PostToolUse",
-        "agent-turn-complete",
-    }
-)
+LIFECYCLE_EVENT_MAP = {
+    "UserPromptSubmit": "UserPromptSubmit",
+    "PreToolUse": "PreToolUse",
+    "PermissionRequest": "PermissionRequest",
+    "PostToolUse": "PostToolUse",
+    "Stop": "agent-turn-complete",
+}
+EVENT_NAMES = frozenset({*LIFECYCLE_EVENT_MAP.values(), "session-end"})
+SESSION_END_TURN_ID = "__session_end__"
 MAX_AMBIENT_PAYLOAD_BYTES = 4096
 
 
 def normalize_lifecycle_payload(payload: Mapping[str, Any]) -> dict[str, str] | None:
+    hook_event_name = payload.get("hook_event_name")
+    if hook_event_name == "SessionEnd":
+        return _normalized_event(
+            "session-end",
+            payload.get("session_id"),
+            SESSION_END_TURN_ID,
+        )
+
     return _normalized_event(
-        payload.get("hook_event_name"),
+        LIFECYCLE_EVENT_MAP.get(hook_event_name),
         payload.get("session_id"),
         payload.get("turn_id"),
-    )
-
-
-def normalize_notify_payload(payload: Mapping[str, Any]) -> dict[str, str] | None:
-    return _normalized_event(
-        payload.get("type"),
-        payload.get("thread-id"),
-        payload.get("turn-id"),
     )
 
 
@@ -80,12 +80,10 @@ def main(
 
     try:
         source = arguments[1] if len(arguments) > 1 else ""
-        if source == "lifecycle":
-            normalized = normalize_lifecycle_payload(json.load(stream))
-        elif source == "notify" and len(arguments) > 2:
-            normalized = normalize_notify_payload(json.loads(arguments[2]))
-        else:
+        if source != "lifecycle":
             return 0
+
+        normalized = normalize_lifecycle_payload(json.load(stream))
 
         if normalized is not None:
             dispatch_event(encode_event(normalized), environment)

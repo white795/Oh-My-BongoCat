@@ -30,12 +30,31 @@ class CodexAmbientAdapterTests(unittest.TestCase):
             },
         )
 
-    def test_notify_payload_uses_the_legacy_correlation_field_names(self) -> None:
-        normalized = adapter.normalize_notify_payload(
+    def test_session_end_without_turn_id_removes_the_session(self) -> None:
+        normalized = adapter.normalize_lifecycle_payload(
             {
-                "type": "agent-turn-complete",
-                "thread-id": "session-a",
-                "turn-id": "turn-a",
+                "hook_event_name": "SessionEnd",
+                "session_id": "session-a",
+                "reason": "other",
+                "transcript_path": "/must/not/cross/the/wsl/boundary",
+            }
+        )
+
+        self.assertEqual(
+            normalized,
+            {
+                "event": "session-end",
+                "sessionId": "session-a",
+                "turnId": "__session_end__",
+            },
+        )
+
+    def test_stop_is_normalized_to_the_existing_done_protocol_event(self) -> None:
+        normalized = adapter.normalize_lifecycle_payload(
+            {
+                "hook_event_name": "Stop",
+                "session_id": "session-a",
+                "turn_id": "turn-a",
                 "last-assistant-message": "must not cross the WSL boundary",
             }
         )
@@ -56,10 +75,27 @@ class CodexAmbientAdapterTests(unittest.TestCase):
             )
         )
         self.assertIsNone(
-            adapter.normalize_notify_payload(
-                {"type": "agent-turn-complete", "thread-id": "session-a", "turn-id": 3}
+            adapter.normalize_lifecycle_payload(
+                {"hook_event_name": "Stop", "session_id": "session-a", "turn_id": 3}
             )
         )
+
+    def test_legacy_notify_mode_is_ignored_without_dispatch(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        payload = (
+            '{"type":"agent-turn-complete","thread-id":"session-a",'
+            '"turn-id":"turn-a"}'
+        )
+
+        with patch.object(adapter, "dispatch_event") as dispatch:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = adapter.main(["adapter", "notify", payload], io.StringIO(), {})
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "")
+        dispatch.assert_not_called()
 
     def test_event_is_base64url_encoded_without_padding(self) -> None:
         self.assertEqual(

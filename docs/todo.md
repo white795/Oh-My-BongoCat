@@ -10,6 +10,7 @@ idle
 
 ## Completed
 
+- [Plan 008](plans/plan-008-codex-notify-decoupling.md)（completed） — [Summary 008](summaries/summary-008-codex-notify-decoupling.md)
 - [Plan 007](plans/plan-007-ambient-relay-daemon.md)（completed） — [Summary 007](summaries/summary-007-ambient-relay-daemon.md)
 
 ## Queued Plans

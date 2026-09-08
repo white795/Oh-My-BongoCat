@@ -96,16 +96,17 @@ Claude Code 橙），并接入 Claude Code 的 hook 体系。同时修复现有�
 `PostToolUse` 承担 WAITING → WORKING 的恢复边（用户批准后由它让星标回到工作态），因此不可
 移除。`StopFailure` 必须映射 DONE，否则一次限流会留下卡死星标。
 
-Codex 侧映射保持不变（`UserPromptSubmit` / `PreToolUse` / `PostToolUse` → WORKING，
-`PermissionRequest` → WAITING，legacy `agent-turn-complete` → DONE）。Codex 已在新版本中
-支持 `SessionEnd` hook，但当前用户端尚未升级 Codex，因此 Codex `SessionEnd` bridge 暂未
-接入。升级后需同步接入，与 Claude 共享相同的即时移除语义。升级前 Codex 会话仅依赖 TTL
-兜底清理。
+Codex 侧映射为 `UserPromptSubmit` / `PreToolUse` / `PostToolUse` → WORKING，
+`PermissionRequest` → WAITING，`Stop` → DONE，`SessionEnd` → 立即移除槽位。legacy notify 只保留
+Windows toast，不再进入 ambient bridge，避免 `/recap` 重建已经移除的槽位。
+Codex `SessionEnd` 没有 `turn_id`，adapter 使用固定内部占位值 `__session_end__` 满足统一协议；
+reducer 只按 `session_id` 删除槽位，不使用该占位值参与回合守卫。
 
 ### 生命周期
 
 - 仅渲染非 idle 会话；列表为空则隐藏窗口。`N = 1` 时行为与现状完全等价，改动风险最小。
-- **Done 常驻**：`agent-turn-complete` 将槽位置为 Done（`✓`），该状态持续显示直到：
+- **Done 常驻**：adapter 将 `Stop` 归一化为 `agent-turn-complete` 并把槽位置为 Done（`✓`），
+  该状态持续显示直到：
   - 同会话下一条 `UserPromptSubmit` 覆盖为 Working；
   - `SessionEnd` 即时移除槽位；
   - TTL 15 分钟无活动驱逐。
@@ -177,6 +178,8 @@ Codex 侧映射保持不变（`UserPromptSubmit` / `PreToolUse` / `PostToolUse` 
 13. [x] Python 测试、`cargo test`、`cargo fmt`、格式与 `git diff --check` 全部通过后增量同步
         到 `D:\VibeTool\BongoCat`。
 14. [ ] 用户在 Windows dev 完成多会话实机验收，再按 AGENTS.md 流程生成安装包。
+15. [x] Codex 升级到支持 `SessionEnd` 的版本后，将第五个 lifecycle hook 接入 adapter；
+        `SessionEnd` 无 `turn_id`，使用固定内部占位值并归一化为 `session-end`。
 
 ## Acceptance
 
@@ -202,9 +205,8 @@ Codex 侧映射保持不变（`UserPromptSubmit` / `PreToolUse` / `PostToolUse` 
 - 每个事件都要启动一次 `powershell.exe` 走 WSL interop。3–4 个会话并发时会达到每秒数个进程，
   开销可感知。本计划不做优化，但需在验收时记录实际表现，为后续去抖提供依据。
 - Claude Code 的 `prompt_id` 需 v2.1.196+；当前为 `2.1.245`，满足。
-- Codex 新版本已支持 `SessionEnd` hook，但用户端尚未升级，升级后需同步接入。TTL 不因
-  `SessionEnd` 接入而取消——终端崩溃、进程被杀等异常退出不会触发任何 hook，TTL 是所有
-  来源的终极安全网。
+- 当前 Codex 已支持并接入 `SessionEnd` hook。TTL 不因 `SessionEnd` 接入而取消——终端崩溃、
+  进程被杀等异常退出不会触发任何 hook，TTL 是所有来源的终极安全网。
 - 待补充实验：`Notification`(`idle_prompt`) 是否在 Esc 打断后触发（文档称空闲 60 秒后发）。
   若有效，可为 Claude 侧补一条 60 秒滞后的通用终止信号。该实验不阻塞本计划。
 - 备选心跳源：Claude Code statusLine 命令每次刷新都会收到含 `session_id` 与 `prompt_id` 的

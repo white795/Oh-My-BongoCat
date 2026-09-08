@@ -8,7 +8,7 @@
 mode="${1-}"
 
 case "$mode" in
-  lifecycle|notify) ;;
+  lifecycle) ;;
   *) exit 0 ;;
 esac
 

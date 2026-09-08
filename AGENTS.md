@@ -75,8 +75,9 @@ Codex：
 - `/home/devuser/.codex/ambient/codex_ambient_adapter.py`
 - `/home/devuser/.codex/ambient/codex-ambient-dispatch.ps1`
 
-`hooks.json` 把四个 lifecycle hook 接入 `~/.codex/ambient`，`launcher.sh` 把 legacy notify
-接入相同 bridge，同时保留原 Windows toast。
+`hooks.json` 把六个 lifecycle hook（含 `Stop` 与 `SessionEnd`）接入 `~/.codex/ambient`；
+`launcher.sh` 只处理 legacy notify 的 Windows toast，不得把 notify 转发给氛围灯。Codex DONE
+由 `Stop` 驱动，避免 `/recap` 产生的 notify 重建已经结束的会话槽位。
 
 Claude Code：
 

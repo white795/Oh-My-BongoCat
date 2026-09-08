@@ -1,12 +1,13 @@
 # Codex Ambient Bridge
 
-该目录把 WSL 中的 Codex lifecycle hook 与 legacy notify 转换成最小事件，并发送给已经运行的
-Windows BongoCat。它不是常驻服务，也不开放网络端口。
+该目录把 WSL 中的 Codex 与 Claude Code lifecycle hook 转换成最小事件，并发送给已经运行的
+Windows BongoCat。它不是网络服务，也不开放网络端口。Codex legacy notify 不进入此 bridge，
+只由 `~/.codex/launcher.sh` 保留原有 Windows toast。
 
 ## Runtime flow
 
 ```text
-Codex/Claude Code hook
+Codex/Claude Code lifecycle hook
       -> *-ambient-hook.sh -> *_ambient_adapter.py
       -> unix socket (/run/user/1000/bongocat-ambient-relay.sock)
       -> bongocat-ambient-relay (WSL daemon, systemd socket activation)
@@ -29,17 +30,16 @@ named pipe 支持最多 16 个并发实例。每次客户端连接后立即创�
 
 ## Codex configuration
 
-四个 lifecycle hook 使用相同命令，并由 stdin 提供 Codex JSON：
+六个 lifecycle hook（`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、
+`Stop`、`SessionEnd`）使用相同命令，并由 stdin 提供 Codex JSON：
 
 ```text
 /bin/bash /home/devuser/.codex/ambient/codex-ambient-hook.sh lifecycle
 ```
 
-legacy `notify` 保持原有 `config.toml` 配置，由 `launcher.sh` 调用：
-
-```text
-/bin/bash /home/devuser/.codex/ambient/codex-ambient-hook.sh notify "$JSON_DATA"
-```
+legacy `notify` 保持原有 `config.toml → launcher.sh` 配置，但只显示 Windows toast。它不会调用
+`codex-ambient-hook.sh`；这是有意的生命周期边界，因为 `/recap` 也会产生 notify，但并不代表
+一个 agent 回合完成。
 
 默认 pipe base name 是：
 
@@ -51,14 +51,19 @@ Windows client 与 BongoCat 会分别附加当前用户 SID。可用 `CODEX_AMBI
 name 进行隔离测试；生产配置不依赖开发版或安装版 exe 路径。
 
 仓库中的这三个 bridge 文件是版本控制来源；修改协议后需要增量复制到
-`/home/devuser/.codex/ambient/`。`hooks.json` 与 `launcher.sh` 只引用该稳定副本，不直接引用
-BongoCat 仓库路径。
+`/home/devuser/.codex/ambient/`。`hooks.json` 只引用该稳定副本，不直接引用 BongoCat 仓库路径。
 
 ## Supported events
 
 - `UserPromptSubmit`、`PreToolUse`、`PostToolUse` → WORKING
 - `PermissionRequest` → WAITING
-- legacy `agent-turn-complete` → DONE（常驻直到会话结束或 TTL 驱逐）
+- `Stop` → `agent-turn-complete` → DONE（常驻直到会话结束或 TTL 驱逐）
+- `SessionEnd` → `session-end`，立即移除槽位
+
+legacy notify payload 中同名的 `agent-turn-complete` 不再被 Codex adapter 接受。
+
+Codex 的 `SessionEnd` payload 没有 `turn_id`。adapter 使用固定内部占位值
+`__session_end__` 满足统一协议；该事件在 reducer 中只按 `sessionId` 删除槽位，不参与回合守卫。
 
 bridge 只转发 `event`、`sessionId`、`turnId` 和 `source`，不会转发 prompt、工具参数或输出。
 payload 上限为 4096 bytes；pipe 拒绝远程客户端，并只允许创建它的 Windows 用户访问。
