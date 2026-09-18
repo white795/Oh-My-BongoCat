@@ -23,7 +23,7 @@ Codex、VS Code 或每次 hook 启动的 PowerShell 权限。
 - 将 pipe 输入复用到现有严格事件解析和 `AmbientRuntime::ingest`，不改变 reducer、sequence、
   stale DONE 或 DONE 定时器行为。
 - 保留 `--codex-ambient-event` single-instance 路径作为兼容入口，但生产 hook 改用 pipe。
-- 修复版统一使用 `1.3.1`，完成 Windows dev 验收后再由用户生成安装包。
+- 本计划的修复开发版本使用 `1.3.1`；最终集成发行版后来由 Plan 002 以 `1.4.0` 完成安装验收。
 
 ## Non-goals
 
@@ -50,7 +50,7 @@ Codex、VS Code 或每次 hook 启动的 PowerShell 权限。
 6. [completed] Python、PowerShell client、格式和 Cargo metadata 检查已通过，源文件已增量
    同步，并由 Windows dev 成功编译。
 7. [completed] 用户已在 Windows 以管理员 BongoCat、普通权限 Codex 完成 dev 跨权限连接验收；
-   `1.3.1` 安装包构建与安装回到 Plan 002 收尾。
+   最终安装包构建与安装随后由 Plan 002 以 `1.4.0` 完成。
 
 ## Acceptance
 

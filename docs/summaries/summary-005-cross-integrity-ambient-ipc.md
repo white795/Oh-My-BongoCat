@@ -9,7 +9,8 @@
   或每次 hook 启动的 PowerShell。
 - BongoCat 内置当前用户专用的 Windows named pipe server；PowerShell 变为短生命周期 client，
   不再查询进程路径、依赖安装位置或启动第二个 BongoCat exe。
-- 修复版本统一为 `1.3.1`；原 `--codex-ambient-event` single-instance 入口保留为兼容路径。
+- 本计划的修复开发版本为 `1.3.1`；原 `--codex-ambient-event` single-instance 入口保留为
+  兼容路径。最终集成发行版随后由 Plan 002 以 `1.4.0` 完成。
 
 ## Changes
 
@@ -46,9 +47,8 @@
   production Rust 路径已由 Windows dev 编译并完成真实连接验证。
 - 没有使用第二个 Windows 用户或远程客户端进行攻击面实测；当前结论依据 DACL、用户 SID 与
   `PIPE_REJECT_REMOTE_CLIENTS` 配置检查。
-- `1.3.1` 安装包尚未构建和安装，最终发行验收由 Plan 002 继续跟踪。
 
-## Follow-ups
+## Subsequent Closeout
 
-- 恢复 [Plan 002](../plans/plan-002-personal-distribution.md)，构建并覆盖安装 `1.3.1`，复核统计
-  持久化、管理员启动和真实 Codex hook。
+- [Plan 002](../plans/plan-002-personal-distribution.md) 已以 `1.4.0` 完成 NSIS 构建、安装版
+  跨权限 hook、统计持久化及连续两天真实使用验收。

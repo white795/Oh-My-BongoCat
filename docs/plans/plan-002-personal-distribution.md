@@ -1,7 +1,7 @@
 # Plan 002: Personal Windows Distribution
 
-- Status: active
-- Summary: pending
+- Status: completed
+- Summary: [summary-002-personal-distribution.md](../summaries/summary-002-personal-distribution.md)
 
 ## Goal
 
@@ -21,7 +21,7 @@
 
 - 将各平台 Tauri 配置的 identifier 统一为新的个人版本 identifier。
 - 保留现有产品名称、图标和 Windows NSIS 打包方式。
-- 将应用与 Rust crate 版本统一更新为 `1.3.1`。
+- 将应用与 Rust crate 版本统一更新为当前个人发行版本 `1.4.0`。
 - 移除自动更新的运行时注册、更新服务端点、设置/托盘/关于页入口和打包更新产物。
 - 在 Windows 原生工具链中生成并定位 NSIS 安装包。
 
@@ -38,8 +38,8 @@
 2. [completed] 隔离 identifier，并关闭自动更新的配置、运行时和 UI 入口。
 3. [completed] 执行 Tauri 配置复核；WSL 未安装 pnpm/Rust，前端与 Rust 检查改在 Windows 构建中执行。
 4. [completed] 已同步必要文件到 Windows 工作区，并成功生成 `BongoCat_1.1.0_x64-setup.exe`。
-5. [in_progress] `1.3.1` 已通过 Windows dev 编译及管理员 BongoCat + 普通 Codex 跨权限验收；
-   等待生成安装包、覆盖安装并复核正式统计与 hook。
+5. [completed] `1.4.0` 已完成 Windows dev、NSIS 安装、管理员 BongoCat + 普通权限 agent
+   跨权限验收，并在真实使用中复核统计、hook 与氛围灯行为。
 
 ## Acceptance
 
@@ -55,4 +55,4 @@
 - 新 identifier 会建立新的应用数据目录；之前位于旧 identifier 目录下的测试统计不会自动迁移。
 - Windows 构建必须在用户已准备好的 `D:\\VibeTool\\BongoCat` 原生环境运行，不能由 WSL 生成 Windows 安装包。
 - 未签名的个人安装包首次运行时可能出现 Windows SmartScreen 提示。
-- named pipe 已在 dev 模式通过跨权限实测，仍需确认安装版的管理员启动与 hook 行为一致。
+- 安装版已完成管理员启动与普通权限 agent hook 的跨权限实测。

@@ -32,6 +32,6 @@
 ## Known Limitations
 
 - Codex 会话异常终止、无法产生 `SessionEnd` 时，仍依赖 15 分钟 TTL 清理。
-- relay 使用 PowerShell `-File` 传递多个 `-Payloads` 的批量参数问题不属于本计划，仍需作为
-  独立任务处理。
+- relay 使用 PowerShell `-File` 传递同来源多个 `-Payloads` 时存在参数绑定风险；连续两天
+  真实使用尚未观察到对应故障，因此本计划只记录该风险，不将其视为当前发布阻塞。
 - 仓库外 `~/.codex` 配置不会随 Git 提交保存，迁移环境时需要按 `AGENTS.md` 单独同步。

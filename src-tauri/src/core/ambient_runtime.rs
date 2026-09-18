@@ -21,6 +21,8 @@ use super::ambient::{
 
 pub const AMBIENT_SNAPSHOT_EVENT: &str = "codex-ambient-snapshot";
 pub const AMBIENT_WINDOW_LABEL: &str = "ambient";
+const AMBIENT_WINDOW_OFFSET_X: i32 = -420;
+const AMBIENT_WINDOW_OFFSET_Y: i32 = 10;
 
 #[derive(Default)]
 pub struct AmbientRuntime {
@@ -140,17 +142,22 @@ fn configure_window<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>) {
         return;
     };
     let work_area = monitor.work_area();
-    let x = work_area.position.x.saturating_add(
-        work_area
-            .size
-            .width
-            .saturating_sub(size.width)
-            .saturating_div(2) as i32,
-    );
+    let x = work_area
+        .position
+        .x
+        .saturating_add(
+            work_area
+                .size
+                .width
+                .saturating_sub(size.width)
+                .saturating_div(2) as i32,
+        )
+        .saturating_add(AMBIENT_WINDOW_OFFSET_X);
     let y = work_area
         .position
         .y
-        .saturating_add(work_area.size.height.saturating_sub(size.height) as i32);
+        .saturating_add(work_area.size.height.saturating_sub(size.height) as i32)
+        .saturating_add(AMBIENT_WINDOW_OFFSET_Y);
 
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }

@@ -2,7 +2,6 @@
 
 - Status: completed
 - Summary: [summary-007-ambient-relay-daemon.md](../summaries/summary-007-ambient-relay-daemon.md)
-- Summary: WSL 常驻中继 daemon，通过状态合并与优先级去抖将 PowerShell 启动频率从每秒十几次降至每秒 1 次以内
 
 ## Goal
 
@@ -280,7 +279,7 @@ def dispatch_to_relay(payload: str):
 
 ## Tasks
 
-1. [ ] 编写 `bongocat-ambient-relay` daemon（Python）：
+1. [x] 编写 `bongocat-ambient-relay` daemon（Python）：
    - unix socket 监听与按行解析 Base64URL payload
    - 状态表维护（session_id 聚合，turn_id 守卫）
    - 优先级队列 + 2 秒定时器
@@ -288,47 +287,42 @@ def dispatch_to_relay(payload: str):
    - `sd_notify` 集成
    - 空闲计数器（30 秒无事件 → 退出）
 
-2. [ ] 更新 `bongocat-ambient-dispatch.ps1`：
+2. [x] 更新 `bongocat-ambient-dispatch.ps1`：
    - 支持 `-Payloads` 数组参数
    - 循环 `foreach` 开 N 个连接
    - 保持现有安全验证（长度 / Base64URL / pipe 名称）
 
-3. [ ] 更新 `codex_ambient_adapter.py` 与 `claude_ambient_adapter.py`：
+3. [x] 更新 `codex_ambient_adapter.py` 与 `claude_ambient_adapter.py`：
    - `dispatch_to_relay()` 替换原有 `subprocess.run(powershell.exe)`
    - 移除 `_to_windows_path()` 依赖
 
-4. [ ] 编写 systemd 单元文件：
+4. [x] 编写 systemd 单元文件并完成手动安装：
    - `bongocat-ambient-relay.socket`
    - `bongocat-ambient-relay.service`
-   - 安装脚本（`systemctl --user enable bongocat-ambient-relay.socket`）
+   - 使用 `systemctl --user enable bongocat-ambient-relay.socket` 安装 socket unit
 
-5. [ ] Python 测试（12 个现有 + 新增）：
-   - daemon 状态表更新与过期 turn_id 丢弃
-   - 优先级事件立即 flush
-   - 低优先级事件去抖合并
-   - `SessionEnd` 后槽位移除
-   - 批量 payload 序列化
-   - fail-open（socket 不存在时静默退出）
+5. [x] 运行既有 Codex / Claude adapter 回归测试，并完成人工 relay 链路验证。仓库未保留
+       relay daemon 专用单元测试，这一点作为已知测试缺口记录，不补写不存在的历史测试结果。
 
-6. [ ] 实机性能测量（4 会话并发工具密集场景）：
-   - PowerShell 启动次数（预期从 ~12/s 降至 ~0.5-1/s）
-   - daemon RSS / CPU 占用
-   - 事件延迟分布（P50 / P95 / P99）
-   - 关键交互点延迟（红星出现、绿星出现）
+6. [x] 完成任务管理器人工观察与连续两天真实使用验收，未再观察到原有 PowerShell 进程洪峰
+       或可感知卡顿。未形成可复现的 P50 / P95 / P99 基准，因此不声明精确性能倍数。
 
-7. [ ] 安装与回滚：
+7. [x] 安装并同步部署文件：
    - 复制 daemon 到 `~/.local/bin/`
    - 复制 systemd units 到 `~/.config/systemd/user/`
    - `systemctl --user daemon-reload && enable --now bongocat-ambient-relay.socket`
    - 验证 `systemctl --user status bongocat-ambient-relay.socket`
    - 文档更新（`integration/README.md`、`AGENTS.md`）
 
-8. [ ] 回滚路径：
+8. [x] 记录手动回滚路径（未编写自动回滚脚本）：
    - adapter 恢复直接调 PowerShell
    - `systemctl --user disable --now bongocat-ambient-relay.{socket,service}`
    - 移除 systemd units
 
-## Acceptance
+## Acceptance Targets
+
+以下数值是计划阶段的目标，不代表均已形成可重复的基准测试。最终关闭依据是 adapter 回归、
+真实 lifecycle 功能验收、任务管理器人工观察，以及连续两天实际使用未发现异常。
 
 - 4 个并发会话工具密集场景下，PowerShell 启动频率 < 1 次/秒
 - daemon RSS < 20MB，空载 CPU < 1%
@@ -353,7 +347,7 @@ def dispatch_to_relay(payload: str):
 - **go-live 切换**：adapter 改动后，旧 hook 配置失效。需原子更新两侧文件 + 重启任意活动会话触发首次 socket 激活。
 - **Phase 2 风险**：常驻 PowerShell 子进程若异常退出需重连，Rust 侧需处理 pipe broken。不在本计划范围。
 
-## Metrics
+## Planning Metrics
 
 成功标准（Phase 1 vs 当前）：
 
@@ -362,7 +356,8 @@ def dispatch_to_relay(payload: str):
 - daemon 常驻开销：0 → <20MB（可接受）
 - 关键交互延迟：无变化（< 200ms）
 
-若 Phase 1 实测仍有可感知卡顿，进入 Phase 2（常驻子进程）。
+这些指标未全部通过自动化基准采集。实际采用标准是 PowerShell 进程洪峰与可感知卡顿消失；
+若后续再次出现性能问题，再为常驻 PowerShell 子进程建立独立计划。
 
 ## Architecture Value
 
@@ -379,10 +374,11 @@ relay 将架构从"每个 agent 独立承担完整跨界链路"变为"adapter �
 
 ## Follow-ups
 
-Phase 1 完成后根据实测数据决定：
+后续仅在真实使用再次发现性能或可靠性问题时考虑：
 
 - Phase 2：常驻 PowerShell 子进程 + Rust 单连接多消息
 - 去抖窗口可调参数（若 2 秒仍嫌长可改成 1 秒或 500ms）
 - daemon 监控指标（处理事件数、flush 次数、队列深度）导出到 stdout 供调试
 
-Phase 2 需单独计划（Plan 008），涉及 Rust 改动与重连逻辑。
+常驻 PowerShell 子进程需单独建立新计划，涉及 Rust 改动与重连逻辑；不复用已经用于 notify
+解耦的 Plan 008 编号。

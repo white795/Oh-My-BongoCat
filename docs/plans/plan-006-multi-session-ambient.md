@@ -1,7 +1,7 @@
 # Plan 006: Multi-Session Ambient Indicators (Codex + Claude Code)
 
-- Status: in-progress
-- Summary: 多会话氛围灯升级，按 session_id 聚合多槽位，Done 常驻直到会话结束
+- Status: completed
+- Summary: [summary-006-multi-session-ambient.md](../summaries/summary-006-multi-session-ambient.md)
 
 ## Goal
 
@@ -177,8 +177,9 @@ reducer 只按 `session_id` 删除槽位，不使用该占位值参与回合守�
 12. [x] 版本号统一为 `1.4.0`（`package.json` + `src-tauri/Cargo.toml`）。
 13. [x] Python 测试、`cargo test`、`cargo fmt`、格式与 `git diff --check` 全部通过后增量同步
         到 `D:\VibeTool\BongoCat`。
-14. [ ] 用户在 Windows dev 完成多会话实机验收，再按 AGENTS.md 流程生成安装包。
-15. [x] Codex 升级到支持 `SessionEnd` 的版本后，将第五个 lifecycle hook 接入 adapter；
+14. [x] 用户完成 Windows dev、安装版及连续两天真实使用验收；多会话状态、主猫、输入统计和
+        hook 链路未发现异常。
+15. [x] Codex 升级到支持 `SessionEnd` 的版本后，将该 lifecycle hook 接入 adapter；
         `SessionEnd` 无 `turn_id`，使用固定内部占位值并归一化为 `session-end`。
 
 ## Acceptance
@@ -202,8 +203,8 @@ reducer 只按 `session_id` 删除槽位，不使用该占位值参与回合守�
 
 - 前端真正的工作量在于把动画状态机从模块级单例重构为实例化子组件，而非配色；现有
   `.agent-indicator` 为 `position: fixed; left: 50%`，多实例会直接重叠。
-- 每个事件都要启动一次 `powershell.exe` 走 WSL interop。3–4 个会话并发时会达到每秒数个进程，
-  开销可感知。本计划不做优化，但需在验收时记录实际表现，为后续去抖提供依据。
+- 本计划初始实现中每个事件都会启动一次 `powershell.exe`；该性能风险后来由
+  [Plan 007](plan-007-ambient-relay-daemon.md) 的 WSL relay 与去抖机制缓解。
 - Claude Code 的 `prompt_id` 需 v2.1.196+；当前为 `2.1.245`，满足。
 - 当前 Codex 已支持并接入 `SessionEnd` hook。TTL 不因 `SessionEnd` 接入而取消——终端崩溃、
   进程被杀等异常退出不会触发任何 hook，TTL 是所有来源的终极安全网。
@@ -211,4 +212,4 @@ reducer 只按 `session_id` 删除槽位，不使用该占位值参与回合守�
   若有效，可为 Claude 侧补一条 60 秒滞后的通用终止信号。该实验不阻塞本计划。
 - 备选心跳源：Claude Code statusLine 命令每次刷新都会收到含 `session_id` 与 `prompt_id` 的
   JSON，可作为会话存活证据以收紧 TTL。会增加耦合，暂不纳入。
-- WSL 无法完成实机验证，最终 gate 必须在 Windows dev 模式由用户执行。
+- Windows dev、安装版与连续两天真实使用验收已由用户完成。

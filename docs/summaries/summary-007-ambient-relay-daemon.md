@@ -7,9 +7,8 @@
 
 - WSL 侧常驻中继 daemon，通过 systemd socket activation 按需拉起，空闲 30 秒自动退出。
 - 高频 hook 事件在 WSL 本地按 `session_id` 聚合为状态表，优先级去抖后批量跨界传输。
-- 统一 PowerShell dispatcher 接受多 payload 数组参数，单次启动处理所有会话事件。
-- 实测 6 并发会话（3 Codex + 3 Claude）、120 次工具调用场景下，PowerShell 进程峰值从预期
-  ~180 个降至 1-2 个，改进约 90 倍。用户手动观察任务管理器确认全程仅 2-3 个 PowerShell。
+- 统一 PowerShell dispatcher 提供多 payload 参数入口，目标是在一次启动中处理同来源会话事件。
+- 用户通过任务管理器观察并连续真实使用两天，未再发现原有 PowerShell 进程洪峰或可感知卡顿。
 
 ## Changes
 
@@ -28,19 +27,18 @@
 ## Decisions
 
 - 不采用 `gate.json` 过滤方案（天花板是减半，不是封顶；无法处理高频连发）。
-- 不实现 Phase 2（常驻 PowerShell 子进程）——Phase 1 已达到 <1 PowerShell/秒目标，
-  无可感知卡顿。
+- 不实现 Phase 2（常驻 PowerShell 子进程）——当前真实使用没有可感知卡顿，不为未出现的
+  性能问题继续增加常驻进程和重连复杂度。
 - 不编写回滚脚本——破坏性升级已部署并通过实机验证。
 - daemon 使用 `selectors` 而非 `asyncio`，保持单线程、零依赖。
 
 ## Verification
 
-- 19 个 Python 测试全部通过（daemon 状态表、优先级 flush、去抖合并、adapter socket 分发、
-  fail-open 行为）。
-- 实机性能测试：6 并发会话 × 20 次工具调用 = 120 事件，10 秒内 PowerShell 峰值 1-2 个。
-  用户通过任务管理器手动确认。
-- 星标功能验证：创建、状态更新、`session-end` 清理均正常。
-- systemd socket activation：首次事件自动拉起 daemon，空闲 30 秒后自动退出。
+- 当前 Codex 与 Claude adapter 共 21 个回归测试通过；仓库没有 relay daemon 专用单元测试，
+  因此不再保留此前无法由测试文件支持的测试数量声明。
+- 用户完成任务管理器人工观察及连续两天真实使用，未发现性能异常或状态链路异常；这属于
+  定性验收，不等价于可重复的进程数、RSS 或延迟基准。
+- 星标创建、状态更新、`session-end` 清理和 systemd socket activation 已在真实会话中工作。
 
 ## Known Limitations
 
@@ -48,9 +46,12 @@
   一个短生命周期 PowerShell。Phase 1 性能已满足需求。
 - 去抖窗口固定 2 秒，未提供运行时可调参数。
 - daemon 无结构化日志或指标导出。
+- 同一次 flush 含两个以上同来源 payload 时，PowerShell `-File` 对数组参数的绑定存在技术风险；
+  当前真实使用尚未观察到对应的事件丢失，因此本阶段只记录、不修改实现。
+- relay daemon 缺少仓库内专用单元测试，后续修改批处理或失败重试时应先补可复现测试。
 
 ## Follow-ups
 
-- Phase 2 需单独计划（Plan 008），仅在 Phase 1 性能不足时启动。
+- Phase 2 仅在真实使用出现性能不足时另建计划，不复用现有计划编号。
 - 去抖窗口可调参数（若 2 秒仍嫌长可改成 1 秒或 500ms）。
-- Plan 006 Task 14（多会话实机验收）暂缓，优先完成后续发布。
+- 多 payload 风险仅在出现真实故障或进入相关代码修改时升级为修复计划。
