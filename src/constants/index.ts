@@ -10,6 +10,7 @@ export const LISTEN_KEY = {
   FLUSH_STATISTICS: 'flush-statistics',
   STATISTICS_FLUSHED: 'statistics-flushed',
   CODEX_AMBIENT_SNAPSHOT: 'codex-ambient-snapshot',
+  AGENT_AMBIENT_ALERT: 'agent-ambient-alert',
 }
 
 export const INVOKE_KEY = {
@@ -19,6 +20,7 @@ export const INVOKE_KEY = {
   STOP_GAMEPAD_LISTING: 'stop_gamepad_listing',
   SET_CODEX_AMBIENT_ENABLED: 'set_codex_ambient_enabled',
   GET_CODEX_AMBIENT_SNAPSHOT: 'get_codex_ambient_snapshot',
+  COMPLETE_AGENT_AMBIENT_ALERT: 'complete_agent_ambient_alert',
 }
 
 export const LANGUAGE = {
@@ -33,4 +35,5 @@ export const WINDOW_LABEL = {
   MAIN: 'main',
   PREFERENCE: 'preference',
   AMBIENT: 'ambient',
+  AMBIENT_ALERT: 'ambient-alert',
 } as const

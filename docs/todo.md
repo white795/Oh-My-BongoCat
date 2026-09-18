@@ -2,11 +2,12 @@
 
 ## Current Focus
 
-idle
+Plan 010 的正式边缘提示效果已通过用户验收，版本已统一为 `1.4.1`，临时预览页已删除；等待
+用户在 Windows 执行 `pnpm.cmd tauri build` 并完成安装版验收，之后关闭计划。
 
 ## Active Plan
 
-无。
+- [Plan 010](plans/plan-010-ambient-edge-alerts.md)（active，Summary pending）
 
 ## Completed
 

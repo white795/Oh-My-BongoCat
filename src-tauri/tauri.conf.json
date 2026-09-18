@@ -50,6 +50,24 @@
         "decorations": false,
         "shadow": false,
         "skipTaskbar": true
+      },
+      {
+        "label": "ambient-alert",
+        "title": "BongoCat Ambient Alert",
+        "url": "index.html/#/ambient-alert",
+        "visible": false,
+        "width": 1,
+        "height": 1,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "focus": false,
+        "focusable": false,
+        "alwaysOnTop": true,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "skipTaskbar": true
       }
     ],
     "security": {

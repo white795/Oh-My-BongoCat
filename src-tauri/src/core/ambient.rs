@@ -84,6 +84,13 @@ pub enum AmbientStatus {
     Done,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AmbientAlertKind {
+    Waiting,
+    Done,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -111,6 +118,7 @@ pub struct AmbientSnapshot {
 pub struct ApplyResult {
     pub accepted: bool,
     pub snapshot: AmbientSnapshot,
+    pub alert: Option<AmbientAlertKind>,
 }
 
 const MAX_AMBIENT_SLOTS: usize = 16;
@@ -166,6 +174,7 @@ impl AmbientReducer {
             return ApplyResult {
                 accepted: false,
                 snapshot: self.build_snapshot(),
+                alert: None,
             };
         }
 
@@ -179,6 +188,7 @@ impl AmbientReducer {
             .expect("SessionEnd handled above");
 
         let slot_index = self.find_slot(&event.session_id);
+        let previous_state = slot_index.map(|index| self.slots[index].state);
 
         match slot_index {
             Some(index) => {
@@ -189,6 +199,7 @@ impl AmbientReducer {
                     return ApplyResult {
                         accepted: false,
                         snapshot: self.build_snapshot(),
+                        alert: None,
                     };
                 }
                 self.global_sequence += 1;
@@ -217,6 +228,7 @@ impl AmbientReducer {
         ApplyResult {
             accepted: true,
             snapshot: self.build_snapshot(),
+            alert: alert_for_transition(previous_state, target_state),
         }
     }
 
@@ -225,6 +237,7 @@ impl AmbientReducer {
             return ApplyResult {
                 accepted: false,
                 snapshot: self.build_snapshot(),
+                alert: None,
             };
         };
 
@@ -238,6 +251,7 @@ impl AmbientReducer {
         ApplyResult {
             accepted: true,
             snapshot: self.build_snapshot(),
+            alert: None,
         }
     }
 
@@ -296,6 +310,21 @@ impl AmbientReducer {
                 sessions,
             },
         }
+    }
+}
+
+fn alert_for_transition(
+    previous: Option<AmbientStatus>,
+    next: AmbientStatus,
+) -> Option<AmbientAlertKind> {
+    if previous == Some(next) {
+        return None;
+    }
+
+    match next {
+        AmbientStatus::Waiting => Some(AmbientAlertKind::Waiting),
+        AmbientStatus::Done => Some(AmbientAlertKind::Done),
+        AmbientStatus::Idle | AmbientStatus::Working => None,
     }
 }
 
@@ -595,6 +624,93 @@ mod tests {
         assert!(post_tool.accepted);
         assert_eq!(post_tool.snapshot.state, AmbientStatus::Working);
         assert_eq!(post_tool.snapshot.sequence, 3);
+    }
+
+    #[test]
+    fn edge_alerts_fire_only_when_a_session_enters_waiting_or_done() {
+        let mut reducer = AmbientReducer::new();
+
+        let working = reducer.ingest(true, event(AmbientEventKind::UserPromptSubmit, "turn-a"));
+        assert_eq!(working.alert, None);
+
+        let waiting = reducer.ingest(true, event(AmbientEventKind::PermissionRequest, "turn-a"));
+        assert_eq!(waiting.alert, Some(AmbientAlertKind::Waiting));
+
+        let repeated_waiting =
+            reducer.ingest(true, event(AmbientEventKind::PermissionRequest, "turn-a"));
+        assert_eq!(repeated_waiting.alert, None);
+
+        let resumed = reducer.ingest(true, event(AmbientEventKind::PostToolUse, "turn-a"));
+        assert_eq!(resumed.alert, None);
+
+        let done = reducer.ingest(true, event(AmbientEventKind::AgentTurnComplete, "turn-a"));
+        assert_eq!(done.alert, Some(AmbientAlertKind::Done));
+
+        let repeated_done =
+            reducer.ingest(true, event(AmbientEventKind::AgentTurnComplete, "turn-a"));
+        assert_eq!(repeated_done.alert, None);
+    }
+
+    #[test]
+    fn edge_alerts_bootstrap_missing_working_events_but_ignore_rejected_events() {
+        let mut waiting_reducer = AmbientReducer::new();
+        let waiting =
+            waiting_reducer.ingest(true, event(AmbientEventKind::PermissionRequest, "turn-a"));
+        assert_eq!(waiting.alert, Some(AmbientAlertKind::Waiting));
+
+        let mut done_reducer = AmbientReducer::new();
+        let done = done_reducer.ingest(true, event(AmbientEventKind::AgentTurnComplete, "turn-a"));
+        assert_eq!(done.alert, Some(AmbientAlertKind::Done));
+
+        let disabled =
+            done_reducer.ingest(false, event(AmbientEventKind::PermissionRequest, "turn-a"));
+        assert_eq!(disabled.alert, None);
+
+        done_reducer.ingest(true, event(AmbientEventKind::UserPromptSubmit, "turn-b"));
+        let stale = done_reducer.ingest(true, event(AmbientEventKind::AgentTurnComplete, "turn-a"));
+        assert!(!stale.accepted);
+        assert_eq!(stale.alert, None);
+
+        let ended = done_reducer.ingest(true, event(AmbientEventKind::SessionEnd, "turn-b"));
+        assert_eq!(ended.alert, None);
+    }
+
+    #[test]
+    fn edge_alert_transitions_are_scoped_to_each_session() {
+        let mut reducer = AmbientReducer::new();
+
+        let session_a = reducer.ingest(
+            true,
+            event_for(
+                AmbientEventKind::PermissionRequest,
+                "session-a",
+                "turn-a",
+                AmbientSource::Codex,
+            ),
+        );
+        assert_eq!(session_a.alert, Some(AmbientAlertKind::Waiting));
+
+        let session_b = reducer.ingest(
+            true,
+            event_for(
+                AmbientEventKind::PermissionRequest,
+                "session-b",
+                "turn-b",
+                AmbientSource::Claude,
+            ),
+        );
+        assert_eq!(session_b.alert, Some(AmbientAlertKind::Waiting));
+
+        let repeated_a = reducer.ingest(
+            true,
+            event_for(
+                AmbientEventKind::PermissionRequest,
+                "session-a",
+                "turn-a",
+                AmbientSource::Codex,
+            ),
+        );
+        assert_eq!(repeated_a.alert, None);
     }
 
     #[test]

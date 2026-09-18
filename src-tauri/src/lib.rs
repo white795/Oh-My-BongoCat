@@ -27,6 +27,13 @@ fn get_codex_ambient_snapshot(app_handle: tauri::AppHandle) -> core::ambient::Am
     app_handle.state::<AmbientRuntime>().snapshot()
 }
 
+#[tauri::command]
+fn complete_agent_ambient_alert(app_handle: tauri::AppHandle, generation: u64) {
+    app_handle
+        .state::<AmbientRuntime>()
+        .complete_alert(&app_handle, generation);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -46,6 +53,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(generate_handler![
+            complete_agent_ambient_alert,
             copy_dir,
             get_codex_ambient_snapshot,
             set_codex_ambient_enabled,

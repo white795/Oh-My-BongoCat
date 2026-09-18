@@ -64,8 +64,8 @@ Claude Code lifecycle hook ───────────┴─> one-shot she
   -> one-shot Windows PowerShell named pipe client
   -> elevated or standard running BongoCat pipe server
   -> Rust multi-session ambient reducer
-  -> snapshot v2
-  -> ambient window renderer
+     ├── snapshot v2 -> ambient window renderer（持续状态）
+     └── transition alert -> ambient-alert renderer（瞬时边缘提示）
 ```
 
 - Codex 与 Claude Code 使用彼此独立的 adapter，在协议边界统一为
@@ -85,6 +85,12 @@ Claude Code lifecycle hook ───────────┴─> one-shot she
   通知因此不能创建或改变会话槽位。
 - 每个槽位在同会话下一回合开始时复用；无法产生 `SessionEnd` 的异常退出由 15 分钟 TTL
   最终驱逐。snapshot v2 暴露会话数组，前端最多渲染五颗星并显示溢出计数。
-- 氛围灯开关由现有 Pinia/Tauri 持久化体系保存；关闭时隐藏窗口并忽略事件。
+- reducer 只在单个 session 首次进入 WAITING 或 DONE 时产生不可持久化的 transition alert；
+  重复状态、WORKING、SessionEnd、TTL、迟到事件和 snapshot 重连不会重放强提示。
+- `ambient-alert` 是预创建但默认隐藏的独立透明 renderer，覆盖主显示器 work area：WAITING
+  播放两次琥珀红连续呼吸，DONE 播放绿色单次扫边。优先级为 Waiting > Done，generation 守卫和
+  Rust 超时兜底防止旧回调隐藏新动画或留下透明全屏窗口。
+- 氛围灯开关由现有 Pinia/Tauri 持久化体系保存；关闭时隐藏 `ambient` 与 `ambient-alert` 两个
+  窗口并忽略事件。
 - ambient 窗口拥有独立的置顶、鼠标穿透与任务栏上沿定位策略，不能复用仅管理主猫 HWND 的
   Windows 置顶循环。

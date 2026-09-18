@@ -15,14 +15,78 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime, WebviewWindow};
 
 use super::ambient::{
-    AmbientEvent, AmbientReducer, AmbientSnapshot, AmbientStatus, SWEEPER_INTERVAL_SECONDS,
-    TTL_SECONDS,
+    AmbientAlertKind, AmbientEvent, AmbientReducer, AmbientSnapshot, AmbientStatus,
+    SWEEPER_INTERVAL_SECONDS, TTL_SECONDS,
 };
 
 pub const AMBIENT_SNAPSHOT_EVENT: &str = "codex-ambient-snapshot";
 pub const AMBIENT_WINDOW_LABEL: &str = "ambient";
+pub const AMBIENT_ALERT_EVENT: &str = "agent-ambient-alert";
+pub const AMBIENT_ALERT_WINDOW_LABEL: &str = "ambient-alert";
 const AMBIENT_WINDOW_OFFSET_X: i32 = -420;
 const AMBIENT_WINDOW_OFFSET_Y: i32 = 10;
+const WAITING_ALERT_DURATION_MS: u64 = 2_800;
+const DONE_ALERT_DURATION_MS: u64 = 1_800;
+const ALERT_FALLBACK_GRACE_MS: u64 = 500;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AmbientAlertPayload {
+    pub kind: AmbientAlertKind,
+    pub generation: u64,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Default)]
+struct AmbientAlertCoordinator {
+    generation: u64,
+    active: Option<AmbientAlertPayload>,
+}
+
+impl AmbientAlertCoordinator {
+    fn request(&mut self, kind: AmbientAlertKind) -> Option<AmbientAlertPayload> {
+        if let Some(active) = self.active {
+            if active.kind == AmbientAlertKind::Waiting || active.kind == kind {
+                return None;
+            }
+        }
+
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.generation = 1;
+        }
+
+        let payload = AmbientAlertPayload {
+            kind,
+            generation: self.generation,
+            duration_ms: match kind {
+                AmbientAlertKind::Waiting => WAITING_ALERT_DURATION_MS,
+                AmbientAlertKind::Done => DONE_ALERT_DURATION_MS,
+            },
+        };
+        self.active = Some(payload);
+        Some(payload)
+    }
+
+    fn complete(&mut self, generation: u64) -> bool {
+        if self.active.map(|active| active.generation) != Some(generation) {
+            return false;
+        }
+
+        self.active = None;
+        true
+    }
+
+    fn clear(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.active = None;
+    }
+
+    #[cfg(test)]
+    fn active(&self) -> Option<AmbientAlertPayload> {
+        self.active
+    }
+}
 
 #[derive(Default)]
 pub struct AmbientRuntime {
@@ -33,6 +97,7 @@ pub struct AmbientRuntime {
     /// older snapshot could otherwise publish after a newer one and apply a
     /// stale window show/hide operation.
     update_lock: Mutex<()>,
+    alert_coordinator: Mutex<AmbientAlertCoordinator>,
     sweeper_started: AtomicBool,
 }
 
@@ -48,6 +113,9 @@ impl AmbientRuntime {
         };
 
         self.publish(app, &snapshot);
+        if !enabled {
+            self.cancel_alert(app);
+        }
     }
 
     pub fn snapshot(&self) -> AmbientSnapshot {
@@ -67,7 +135,15 @@ impl AmbientRuntime {
         }
 
         self.publish(app, &applied.snapshot);
+        if let Some(alert) = applied.alert {
+            self.request_alert(app, alert);
+        }
         self.ensure_sweeper(app);
+    }
+
+    pub fn complete_alert<R: Runtime>(&self, app: &AppHandle<R>, generation: u64) {
+        let _update = self.update_guard();
+        self.complete_alert_locked(app, generation);
     }
 
     fn ensure_sweeper<R: Runtime>(&self, app: &AppHandle<R>) {
@@ -112,6 +188,12 @@ impl AmbientRuntime {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    fn alert_coordinator(&self) -> MutexGuard<'_, AmbientAlertCoordinator> {
+        self.alert_coordinator
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn publish<R: Runtime>(&self, app: &AppHandle<R>, snapshot: &AmbientSnapshot) {
         let _ = app.emit_to(AMBIENT_WINDOW_LABEL, AMBIENT_SNAPSHOT_EVENT, snapshot);
         self.sync_window_visibility(app, snapshot);
@@ -129,6 +211,47 @@ impl AmbientRuntime {
 
         configure_window(app, &window);
         let _ = window.show();
+    }
+
+    fn request_alert<R: Runtime>(&self, app: &AppHandle<R>, kind: AmbientAlertKind) {
+        let Some(window) = app.get_webview_window(AMBIENT_ALERT_WINDOW_LABEL) else {
+            return;
+        };
+        let Some(payload) = self.alert_coordinator().request(kind) else {
+            return;
+        };
+
+        configure_alert_window(app, &window);
+        let _ = window.show();
+        let _ = app.emit_to(AMBIENT_ALERT_WINDOW_LABEL, AMBIENT_ALERT_EVENT, payload);
+
+        let app = app.clone();
+        let _ = thread::Builder::new()
+            .name("ambient-alert-timeout".into())
+            .spawn(move || {
+                thread::sleep(Duration::from_millis(
+                    payload.duration_ms + ALERT_FALLBACK_GRACE_MS,
+                ));
+                app.state::<AmbientRuntime>()
+                    .complete_alert(&app, payload.generation);
+            });
+    }
+
+    fn complete_alert_locked<R: Runtime>(&self, app: &AppHandle<R>, generation: u64) {
+        if !self.alert_coordinator().complete(generation) {
+            return;
+        }
+
+        if let Some(window) = app.get_webview_window(AMBIENT_ALERT_WINDOW_LABEL) {
+            let _ = window.hide();
+        }
+    }
+
+    fn cancel_alert<R: Runtime>(&self, app: &AppHandle<R>) {
+        self.alert_coordinator().clear();
+        if let Some(window) = app.get_webview_window(AMBIENT_ALERT_WINDOW_LABEL) {
+            let _ = window.hide();
+        }
     }
 }
 
@@ -160,4 +283,74 @@ fn configure_window<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>) {
         .saturating_add(AMBIENT_WINDOW_OFFSET_Y);
 
     let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+fn configure_alert_window<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>) {
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_focusable(false);
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.set_always_on_top(true);
+
+    let Ok(Some(monitor)) = app.primary_monitor() else {
+        return;
+    };
+    let work_area = monitor.work_area();
+    let _ = window.set_size(work_area.size);
+    let _ = window.set_position(work_area.position);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn waiting_preempts_done_while_done_never_overwrites_waiting() {
+        let mut coordinator = AmbientAlertCoordinator::default();
+
+        let done = coordinator
+            .request(AmbientAlertKind::Done)
+            .expect("first done should display");
+        let waiting = coordinator
+            .request(AmbientAlertKind::Waiting)
+            .expect("waiting should preempt done");
+
+        assert!(waiting.generation > done.generation);
+        assert_eq!(waiting.kind, AmbientAlertKind::Waiting);
+        assert_eq!(coordinator.request(AmbientAlertKind::Done), None);
+        assert_eq!(coordinator.request(AmbientAlertKind::Waiting), None);
+    }
+
+    #[test]
+    fn only_the_current_generation_can_complete_or_hide_an_alert() {
+        let mut coordinator = AmbientAlertCoordinator::default();
+
+        let done = coordinator
+            .request(AmbientAlertKind::Done)
+            .expect("done should display");
+        let waiting = coordinator
+            .request(AmbientAlertKind::Waiting)
+            .expect("waiting should preempt done");
+
+        assert!(!coordinator.complete(done.generation));
+        assert!(coordinator.complete(waiting.generation));
+        assert!(!coordinator.complete(waiting.generation));
+
+        let next = coordinator
+            .request(AmbientAlertKind::Done)
+            .expect("completion should release the coordinator");
+        assert!(next.generation > waiting.generation);
+    }
+
+    #[test]
+    fn clearing_alerts_invalidates_outstanding_completion_callbacks() {
+        let mut coordinator = AmbientAlertCoordinator::default();
+        let active = coordinator
+            .request(AmbientAlertKind::Waiting)
+            .expect("waiting should display");
+
+        coordinator.clear();
+
+        assert!(!coordinator.complete(active.generation));
+        assert!(coordinator.active().is_none());
+    }
 }

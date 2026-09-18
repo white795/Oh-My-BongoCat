@@ -19,6 +19,10 @@ if (appWindow.label === WINDOW_LABEL.AMBIENT) {
   void import('./pages/ambient/index.vue').then(({ default: Ambient }) => {
     createApp(Ambient).mount('#app')
   })
+} else if (appWindow.label === WINDOW_LABEL.AMBIENT_ALERT) {
+  void import('./pages/ambient-alert/index.vue').then(({ default: AmbientAlert }) => {
+    createApp(AmbientAlert).mount('#app')
+  })
 } else {
   const pinia = createPinia()
   pinia.use(createPlugin({ saveOnChange: true }))
