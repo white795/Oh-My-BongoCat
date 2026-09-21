@@ -69,11 +69,11 @@ export function useModel() {
     try {
       if (!modelStore.currentModel) return
 
-      const { path } = modelStore.currentModel
+      const { path, isPreset, presetKey } = modelStore.currentModel
 
       await resolveResource(path)
 
-      const { width, height, motions, expressions } = await live2d.load(path)
+      const { width, height, motions, expressions } = await live2d.load(path, isPreset ? presetKey : undefined)
 
       const nextMotions = Object.entries(motions)
 
@@ -166,13 +166,16 @@ export function useModel() {
   function handleMouseChange(key: string, pressed = true) {
     const id = key === 'Left' ? 'ParamMouseLeftDown' : 'ParamMouseRightDown'
 
-    live2d.setParameterValue(id, pressed)
+    live2d.mouseInput.write(id, pressed)
   }
 
   async function handleMouseMove(cursorPoint: PhysicalPosition) {
+    const token = live2d.mouseInput.begin()
+
     const monitor = await getCursorMonitor(cursorPoint)
 
-    if (!monitor) return
+    // While guitar owns the model, cache current targets for a smooth handoff without applying them.
+    if (!monitor || !live2d.mouseInput.isCurrent(token)) return
 
     const { size, position } = monitor
 
@@ -217,7 +220,7 @@ export function useModel() {
         value *= -1
       }
 
-      live2d.setParameterValue(id, value)
+      live2d.mouseInput.write(id, value, token)
     }
   }
 
