@@ -12,6 +12,8 @@ import { round } from 'es-toolkit'
 import { nth } from 'es-toolkit/compat'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 
+import type { GuitarNote } from '@/utils/guitarNoteEffect'
+
 import { useAppMenu } from '@/composables/useAppMenu'
 import { useDevice } from '@/composables/useDevice'
 import { useGamepad } from '@/composables/useGamepad'
@@ -22,13 +24,15 @@ import { hideWindow, setAlwaysOnTop, setTaskbarVisibility, showWindow } from '@/
 import { useCatStore } from '@/stores/cat'
 import { useGeneralStore } from '@/stores/general.ts'
 import { useModelStore } from '@/stores/model'
+import { GUITAR_NOTE_EFFECT, GuitarNoteEffect } from '@/utils/guitarNoteEffect'
 import { isImage } from '@/utils/is'
 import live2d from '@/utils/live2d'
 import { join } from '@/utils/path'
 import { isWindows } from '@/utils/platform'
 import { clearObject } from '@/utils/shared'
 
-const { startListening } = useDevice()
+import GuitarNoteLayer from './GuitarNoteLayer.vue'
+
 const appWindow = getCurrentWebviewWindow()
 const { modelSize, handleLoad, handleDestroy, handleResize, handleKeyChange } = useModel()
 const catStore = useCatStore()
@@ -38,10 +42,18 @@ const generalStore = useGeneralStore()
 const resizing = ref(false)
 const backgroundImagePath = ref<string>()
 const { stickActive } = useGamepad()
+const guitarNoteEffect = new GuitarNoteEffect()
+const guitarNotes = ref<readonly GuitarNote[]>([])
+const guitarNoteTimers = new Map<number, number>()
+let guitarRestTimer: number | undefined
+const { startListening } = useDevice({ onKeyboardPress: handleGuitarKeyPress })
 
 onMounted(startListening)
 
-onUnmounted(handleDestroy)
+onUnmounted(() => {
+  clearGuitarNotes()
+  handleDestroy()
+})
 
 const debouncedResize = useDebounceFn(async () => {
   await handleResize()
@@ -58,6 +70,7 @@ useEventListener('resize', () => {
 watch(() => modelStore.currentModel, async (model) => {
   if (!model) return
 
+  clearGuitarNotes()
   await handleLoad()
 
   const path = join(model.path, 'resources', 'background.png')
@@ -133,7 +146,66 @@ useTauriListen<MotionInfo>(LISTEN_KEY.START_MOTION, ({ payload }) => {
 
 useTauriListen<number>(LISTEN_KEY.SET_EXPRESSION, ({ payload }) => {
   live2d.setExpression(payload)
+
+  if (!live2d.isGuitarPerforming) clearGuitarNotes()
 })
+
+function syncGuitarNotes() {
+  const notes = guitarNoteEffect.snapshot
+  const activeIds = new Set(notes.map(note => note.id))
+
+  for (const [id, timer] of guitarNoteTimers) {
+    if (activeIds.has(id)) continue
+
+    window.clearTimeout(timer)
+    guitarNoteTimers.delete(id)
+  }
+
+  guitarNotes.value = notes
+}
+
+function expireGuitarNote(id: number) {
+  guitarNoteTimers.delete(id)
+  guitarNoteEffect.remove(id)
+  syncGuitarNotes()
+}
+
+function showGuitarNote(note: GuitarNote | undefined) {
+  if (!note) return
+
+  syncGuitarNotes()
+  guitarNoteTimers.set(note.id, window.setTimeout(() => expireGuitarNote(note.id), note.durationMs))
+}
+
+function scheduleGuitarRest() {
+  if (guitarRestTimer !== undefined) window.clearTimeout(guitarRestTimer)
+
+  guitarRestTimer = window.setTimeout(() => {
+    guitarRestTimer = undefined
+
+    if (!live2d.isGuitarPerforming) return
+
+    showGuitarNote(guitarNoteEffect.triggerRest())
+  }, GUITAR_NOTE_EFFECT.restDelayMs)
+}
+
+function handleGuitarKeyPress() {
+  if (!live2d.isGuitarPerforming) return
+
+  scheduleGuitarRest()
+  showGuitarNote(guitarNoteEffect.trigger())
+}
+
+function clearGuitarNotes() {
+  for (const timer of guitarNoteTimers.values()) window.clearTimeout(timer)
+
+  if (guitarRestTimer !== undefined) window.clearTimeout(guitarRestTimer)
+
+  guitarNoteTimers.clear()
+  guitarRestTimer = undefined
+  guitarNoteEffect.clear()
+  guitarNotes.value = []
+}
 
 function handleMouseDown() {
   appWindow.startDragging()
@@ -203,6 +275,11 @@ function handleMouseMove(event: MouseEvent) {
       class="object-cover"
       :src="convertFileSrc(path)"
     >
+
+    <GuitarNoteLayer
+      :mirrored="catStore.model.mirror"
+      :notes="guitarNotes"
+    />
 
     <div
       v-show="resizing || !modelStore.modelReady"

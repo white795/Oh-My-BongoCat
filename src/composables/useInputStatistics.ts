@@ -84,6 +84,8 @@ export function useInputStatistics() {
 
     buffer.record(category)
     scheduleFlush()
+
+    return category
   }
 
   useTauriListen<FlushRequest>(LISTEN_KEY.FLUSH_STATISTICS, async ({ payload }) => {

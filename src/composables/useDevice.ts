@@ -41,7 +41,11 @@ type DeviceEvent = MouseButtonEvent | MouseMoveEvent | KeyboardEvent
 const DAMPING_DECAY = 0.75
 const appWindow = getCurrentWebviewWindow()
 
-export function useDevice() {
+interface UseDeviceOptions {
+  onKeyboardPress?: () => void
+}
+
+export function useDevice(options: UseDeviceOptions = {}) {
   const modelStore = useModelStore()
   const releaseTimers = new Map<string, NodeJS.Timeout>()
   const appStore = useAppStore()
@@ -188,7 +192,9 @@ export function useDevice() {
   useTauriListen<DeviceEvent>(LISTEN_KEY.DEVICE_CHANGED, ({ payload }) => {
     const { kind, value } = payload
 
-    recordDeviceActivity(kind, value)
+    const activity = recordDeviceActivity(kind, value)
+
+    if (activity === 'keyboard') options.onKeyboardPress?.()
 
     if (kind === 'KeyboardPress' || kind === 'KeyboardRelease') {
       const nextValue = getSupportedKey(value)
