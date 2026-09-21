@@ -5,6 +5,7 @@ import { emit } from '@tauri-apps/api/event'
 import { Empty, Modal, Segmented } from 'antdv-next'
 import { isEmpty } from 'es-toolkit/compat'
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { LISTEN_KEY } from '@/constants'
 import { useModelStore } from '@/stores/model'
@@ -14,6 +15,7 @@ import BehaviorItem from './components/behavior-item/index.vue'
 const modelValue = defineModel<boolean>()
 const modelStore = useModelStore()
 const value = ref<'motion' | 'expression'>('motion')
+const { t } = useI18n()
 
 function getMotionShortcutId(groupName: string, index: number) {
   return `${modelStore.currentModel?.id}:motion:${groupName}:${index}`
@@ -21,6 +23,17 @@ function getMotionShortcutId(groupName: string, index: number) {
 
 function getExpressionShortcutId(index: number) {
   return `${modelStore.currentModel?.id}:expression:${index}`
+}
+
+function getExpressionLabel(name: string, index: number) {
+  const label = name?.trim()
+
+  // Keep numbered labels for unnamed and auto-generated legacy expressions.
+  if (!label || /^(?:expression[\s_-]?\d+|.*\.exp3\.json)$/i.test(label)) {
+    return t('pages.preference.model.behaviorModal.labels.expressionIndex', { index: index + 1 })
+  }
+
+  return label
 }
 
 function startMotion(motion: MotionInfo) {
@@ -101,7 +114,7 @@ function setExpression(index: number) {
         >
           <BehaviorItem
             v-model="modelStore.shortcuts[getExpressionShortcutId(index)]"
-            :label="$t('pages.preference.model.behaviorModal.labels.expressionIndex', { index: index + 1 })"
+            :label="getExpressionLabel(item.name, index)"
             @click="setExpression(index)"
           />
         </template>

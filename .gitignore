@@ -23,3 +23,8 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+# Proprietary MikuCat design sources; the distributable runtime export lives in
+# src-tauri/assets/models/mikucat/ and must remain trackable.
+/mikucat/
+/mikucat-lived2d/

@@ -1,0 +1,45 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "mikucat.moc3",
+    "Textures": [
+      "textures/texture_00.png"
+    ],
+    "Physics": "mikucat.physics3.json",
+    "DisplayInfo": "mikucat.cdi3.json",
+    "Expressions": [
+      {
+        "Name": "默认",
+        "File": "expressions/default.exp3.json"
+      },
+      {
+        "Name": "豆豆",
+        "File": "expressions/dot-eyes.exp3.json"
+      },
+      {
+        "Name": "生气",
+        "File": "expressions/angry.exp3.json"
+      },
+      {
+        "Name": "吉他",
+        "File": "expressions/guitar.exp3.json"
+      }
+    ]
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": [
+        "ParamEyeLOpen",
+        "ParamEyeROpen"
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": []
+    }
+  ],
+  "HitAreas": []
+}
