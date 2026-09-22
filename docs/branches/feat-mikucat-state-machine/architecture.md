@@ -4,7 +4,7 @@
 
 本支线从 `feat/input-statistics` 的提交 `bca8bb0` 分出，继承已经验证的输入统计、Codex/Claude
 多 Session 氛围灯和边缘提示。旧架构保存在
-[architecture-feat-input-statistics.md](architecture-feat-input-statistics.md)，本文只描述 MikuCat
+[`feat/input-statistics` 架构](../feat-input-statistics/architecture.md)，本文只描述 MikuCat
 支线有意改变或新增的边界。
 
 ## Product Direction
@@ -13,10 +13,11 @@ BongoCat 在本支线中从“输入事件驱动的桌宠，并附带彼此隔�
 “可以组合设备输入和 Agent 生命周期的状态化桌宠”。这项演进分成两个阶段：
 
 1. 先把 MikuCat 作为独立、稳定的光标交互型 Live2D 模型接入原软件；
-2. 第一阶段验收完成后，再让明确声明能力的模型消费现有 Agent 状态。
+2. 在模型、吉他动画和音符原型边界明确后，让明确声明能力的模型消费现有 Agent 状态，并把
+   角色状态机、动画机和特效机分层。
 
-两个阶段必须独立验收。第一阶段不得为了尚未确定的 Agent 动画提前修改 hook、bridge、ambient
-reducer 或现有氛围灯 renderer。
+两个阶段必须独立验收。第一阶段没有为了 Agent 动画修改 hook、bridge、ambient reducer 或现有
+氛围灯 renderer；第二阶段继续复用这条已验证链路，只新增主窗口消费者和角色表现归约。
 
 ## Stage 1 Boundary: Model Integration
 
@@ -138,20 +139,27 @@ KeyboardPress timing + mode lifecycle
 - 同一个 snapshot / cue 分别交给两个消费者；任一消费者的延迟或清理不阻塞另一方，两者不互调；
 - 持续状态采用最新值覆盖，瞬时提示使用 sequence、冷却或合并规则防止重复和无限积压；
 - 输入休止提示不等于动画停止，也不同于动画机内部名为 `rest` 的放松片段；
-- 未来“生气”等状态中，Expression、耳朵和身体动作归动画机，烟雾、火花和外部气场归特效机；
-  当前阶段只预留边界，不实现这些新 profile 或 Agent 映射。
+- 未来“生气”等状态中，Expression、耳朵和身体动作归动画机，烟雾、火花和外部气场归特效机。
+
+吉他状态机之上还有父级角色状态机。父级只读取现有 `AmbientSnapshot.sessions` 和独立的 Agent
+接管开关，以 `WAITING > WORKING > RELAXED` 归约出 `ANGRY | GUITAR | RELAXED`；不得使用只代表
+最近更新 Session 的顶层 `snapshot.state`。父级模式不变时 generation 不变，重复 hook 不能重启
+动画。只有父级为 `GUITAR` 时才激活吉他子状态机；切出后旧 generation 的提示失效。
+
+角色控制权单独表示为 `MANUAL | AGENT`。Agent 接管关闭时仍缓存最新 Ambient 快照，但不改变模型；
+开启时立即按当前快照接管，关闭时清理子状态与特效、恢复鼠标并交还默认手动态。手动 Expression
+和 Motion 的真正拦截位于主窗口中央入口，偏好页禁用仅用于提示。氛围灯显示与模型接管是两个
+独立开关，任一消费者开启时接收服务都必须继续维护 Session。
 
 具体交互状态、两类消费者契约、Plan 019 迁移范围和验收用例记录在
-[Plan 020](plans/plan-020-guitar-mode-animation-contract.md)。该计划先在当前支线构建状态机与特效机，
-动画机支线接口就绪后再接入第二个消费者；不提前接入 Agent 生命周期。
+[Plan 020](plans/plan-020-guitar-mode-animation-contract.md)。该计划先构建父级角色归约与主窗口控制权，
+再向下构建吉他状态机和特效机；动画机支线接口就绪后接入第二个消费者。
 
 ## Stage 2 Boundary: Agent State Integration
 
-模型可用与实际动画分开验收：吉他脸部与输入解耦已通过，手部演奏动画机正在独立验收；其余动作、
-复位和过渡仍按小步推进，再决定与 Agent 的映射。已有四个 Expression 不代表完整动画已验收。
-
-第二阶段尚未进入实施。其稳定方向是复用现有 ambient 事件源和 Rust reducer，让主 Live2D
-窗口成为新的接收方，而不是增加另一套 hook 或状态服务：
+模型可用与实际动画继续分开验收：吉他脸部与输入解耦已通过，手部演奏动画机正在独立验收；已有
+四个 Expression 不代表完整动画已验收。第二阶段已从纯角色归约器开始实施，继续复用现有 ambient
+事件源和 Rust reducer，让主 Live2D 窗口成为新的接收方，而不是增加另一套 hook 或状态服务：
 
 ```text
 Codex / Claude hooks
@@ -161,9 +169,10 @@ Codex / Claude hooks
            └──> model presentation controller（第二阶段）
 ```
 
-只有显式声明 Agent 能力的模型才能响应该状态；旧模型必须继续保持原行为。多 Session 到单角色
-的归约、持续状态与瞬时效果的优先级、Expression 映射和外部特效均留待第一阶段完成后单独设计，
-不能在当前阶段当作已经确定或实现的事实。
+只有显式声明 Agent 能力的内置 MikuCat 才能响应该状态；旧模型和自定义模型必须继续保持原行为。
+多 Session 到单角色固定按“任一 waiting -> angry；否则任一 working -> guitar；否则 relaxed”归约。
+`done` 不形成稳定角色模式，归入 relaxed；完成提示仍由既有边缘提示承担。当前已实现并测试纯
+TypeScript 角色归约器，尚未接通主窗口、持久化开关、Expression 映射或外部特效。
 
 ## Compatibility and Release Boundary
 

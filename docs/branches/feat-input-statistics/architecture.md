@@ -1,7 +1,7 @@
 # Architecture — feat/input-statistics
 
 > 本文冻结 `feat/input-statistics` 分支在提交 `bca8bb0` 时的架构边界。MikuCat 支线不得直接
-> 改写本文；新架构见 `architecture-feat-mikucat-state-machine.md`。
+> 改写本文；新架构见 [`feat/mikucat-state-machine`](../feat-mikucat-state-machine/architecture.md)。
 
 ## Product Boundary
 

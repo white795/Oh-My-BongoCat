@@ -120,7 +120,7 @@ enum AmbientAlertKind {
 8. [x] 仅将本计划涉及文件增量同步到 `D:\VibeTool\BongoCat`，由用户运行
        `pnpm.cmd tauri dev` 完成视觉、焦点、鼠标穿透和快速连续事件验收。
 9. [ ] 用户确认 dev 验收通过，应用与 Rust crate 版本已统一为 `1.4.1`；待用户完成 Windows
-       NSIS 构建、安装验收后创建 Summary 010，并将 `docs/todo.md` 恢复为 idle。
+       NSIS 构建、安装验收后创建 Summary 010，并更新本分支的 `../todo.md`。
 
 ## Acceptance
 

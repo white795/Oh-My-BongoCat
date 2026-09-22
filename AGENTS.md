@@ -11,6 +11,16 @@ WSL 与 Windows 是两个独立工作副本。代码修改完成后，应只同�
 仓库，并保留 Windows 仓库已有的 `node_modules` 和 `target` 缓存；不要通过重新复制整个仓库
 或重装依赖来代替增量同步。
 
+## 分支项目记忆
+
+项目计划按 Git 分支隔离在 `docs/branches/<branch-slug>/`，其中 `branch-slug` 是把分支名中的
+`/` 替换为 `-`。开始或恢复持续性任务前，先运行 `git branch --show-current`，再从
+[`docs/todo.md`](docs/todo.md) 进入当前分支的 `todo.md`、`architecture.md`、活动计划和总结。
+
+根目录的 `docs/todo.md`、`docs/architecture.md` 与 `docs/summaries/index.md` 只承担静态路由，
+不得写入某一分支的动态进度。每条分支只维护自己的目录；跨分支依赖使用包含分支目录的明确链接，
+合并工作在目标分支新建 integration plan，不覆盖来源分支的历史计划。
+
 ## Windows 验收与打包流程
 
 本项目固定采用“先开发态验收，再生成安装包”的顺序。除非用户明确要求，不要跳过 dev 验收
