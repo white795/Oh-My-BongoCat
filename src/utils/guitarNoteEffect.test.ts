@@ -30,6 +30,8 @@ describe('guitar note effect scheduling', () => {
       'quarter',
       'chord',
       'triplet',
+      'sharp',
+      'flat',
     ]))
     assert.ok(notes.every(note => note?.durationMs === GUITAR_NOTE_EFFECT.durationMs))
     assert.equal(new Set(notes.map(note => note?.color)).size, 10)

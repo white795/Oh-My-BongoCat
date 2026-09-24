@@ -27,7 +27,10 @@ export class ModelMouseInput {
     this.enabled = enabled
     this.revision++
 
-    if (enabled) return
+    if (enabled) {
+      for (const [id, value] of this.targets) this.writeParameter(id, value)
+      return
+    }
 
     // MikuCat's external overrides persist across frames. Do not freeze the last cursor pose.
     for (const id of [

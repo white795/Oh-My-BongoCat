@@ -3,7 +3,7 @@ import type { MotionInfo } from 'easy-live2d'
 
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { PhysicalSize } from '@tauri-apps/api/dpi'
-import { Menu, PredefinedMenuItem } from '@tauri-apps/api/menu'
+import { CheckMenuItem, Menu, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
 import { sep } from '@tauri-apps/api/path'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { exists, readDir } from '@tauri-apps/plugin-fs'
@@ -12,7 +12,9 @@ import { round } from 'es-toolkit'
 import { nth } from 'es-toolkit/compat'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 
-import type { GuitarNote } from '@/utils/guitarNoteEffect'
+import type { GuitarNote } from '@/utils/guitarEffectEngine'
+import type { GuitarMotifId } from '@/utils/guitarMotifs'
+import type { GuitarPerformanceProfile, GuitarPerformanceTemplateId } from '@/utils/guitarPerformance'
 
 import { useAppMenu } from '@/composables/useAppMenu'
 import { useDevice } from '@/composables/useDevice'
@@ -24,7 +26,9 @@ import { hideWindow, setAlwaysOnTop, setTaskbarVisibility, showWindow } from '@/
 import { useCatStore } from '@/stores/cat'
 import { useGeneralStore } from '@/stores/general.ts'
 import { useModelStore } from '@/stores/model'
+import { IMMERSED_DOUBLE_NOD_MOTIF_ID } from '@/utils/guitarMotifs'
 import { GUITAR_NOTE_EFFECT, GuitarNoteEffect } from '@/utils/guitarNoteEffect'
+import { GUITAR_CONTINUE_TEMPLATE_ID, GUITAR_INPUT_BASELINE_TEMPLATE_ID, GUITAR_SOFT_CLOSE_TEMPLATE_ID } from '@/utils/guitarPerformance'
 import { isImage } from '@/utils/is'
 import live2d from '@/utils/live2d'
 import { join } from '@/utils/path'
@@ -47,6 +51,48 @@ const guitarNotes = ref<readonly GuitarNote[]>([])
 const guitarNoteTimers = new Map<number, number>()
 let guitarRestTimer: number | undefined
 const { startListening } = useDevice({ onKeyboardPress: handleGuitarKeyPress })
+const guitarDebugProfiles = ['autonomous', 'engaged', 'groove', 'drive'] as const
+const guitarDebugMotifs: readonly { text: string, motifId?: GuitarMotifId }[] = [
+  { text: 'OFF' },
+  { text: 'IMMERSED DOUBLE NOD', motifId: IMMERSED_DOUBLE_NOD_MOTIF_ID },
+]
+const guitarDebugTemplates: readonly { text: string, templateId?: GuitarPerformanceTemplateId }[] = [
+  { text: 'PROFILE DEFAULT' },
+  { text: 'CONTINUE', templateId: GUITAR_CONTINUE_TEMPLATE_ID },
+  { text: 'SOFT CLOSE', templateId: GUITAR_SOFT_CLOSE_TEMPLATE_ID },
+  { text: 'ACCENT CLOSE', templateId: GUITAR_INPUT_BASELINE_TEMPLATE_ID },
+]
+const guitarDebugActivity: Record<GuitarPerformanceProfile, number> = {
+  autonomous: 0,
+  engaged: 0.25,
+  groove: 0.6,
+  drive: 1,
+}
+
+function setGuitarDebugProfile(profile: GuitarPerformanceProfile, activity = guitarDebugActivity[profile], releasing = false) {
+  return live2d.setGuitarPerformanceIntent({ profile, activity, releasing })
+}
+
+function setGuitarDebugTemplate(templateId?: GuitarPerformanceTemplateId) {
+  return live2d.setGuitarPerformanceTemplateOverride(templateId)
+}
+
+function setGuitarDebugMotifPreview(motifId?: GuitarMotifId) {
+  return live2d.setGuitarMotifPreview(motifId)
+}
+
+if (import.meta.env.DEV) {
+  Object.assign(window, {
+    __BONGO_CAT_GUITAR_DEBUG__: {
+      set: setGuitarDebugProfile,
+      setTemplate: setGuitarDebugTemplate,
+      previewMotif: setGuitarDebugMotifPreview,
+      snapshot() {
+        return live2d.guitarPerformanceSnapshot
+      },
+    },
+  })
+}
 
 onMounted(startListening)
 
@@ -216,9 +262,46 @@ async function handleContextmenu(event: MouseEvent) {
 
   if (event.shiftKey) return
 
+  const guitarDebugItems = import.meta.env.DEV
+    ? [
+        await PredefinedMenuItem.new({ item: 'Separator' }),
+        await Submenu.new({
+          text: 'Guitar profile (dev)',
+          items: await Promise.all(guitarDebugProfiles.map((profile) => {
+            return CheckMenuItem.new({
+              text: profile.toUpperCase(),
+              checked: live2d.guitarPerformanceSnapshot.requestedIntent.profile === profile,
+              action: () => setGuitarDebugProfile(profile),
+            })
+          })),
+        }),
+        await Submenu.new({
+          text: 'Guitar template (dev)',
+          items: await Promise.all(guitarDebugTemplates.map(({ text, templateId }) => {
+            return CheckMenuItem.new({
+              text,
+              checked: live2d.guitarPerformanceSnapshot.templateOverride === templateId,
+              action: () => setGuitarDebugTemplate(templateId),
+            })
+          })),
+        }),
+        await Submenu.new({
+          text: 'Guitar motif insertion (dev)',
+          items: await Promise.all(guitarDebugMotifs.map(({ text, motifId }) => {
+            return CheckMenuItem.new({
+              text,
+              checked: live2d.guitarPerformanceSnapshot.requestedMotifPreview === motifId,
+              action: () => setGuitarDebugMotifPreview(motifId),
+            })
+          })),
+        }),
+      ]
+    : []
+
   const menu = await Menu.new({
     items: [
       ...await getBaseMenu(),
+      ...guitarDebugItems,
       await PredefinedMenuItem.new({ item: 'Separator' }),
       ...await getExitMenu(),
     ],

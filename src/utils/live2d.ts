@@ -11,10 +11,13 @@ import type { ModelSize } from '@/composables/useModel'
 
 import { i18n } from '@/locales'
 
+import type { GuitarMotifId } from './guitarMotifs'
+import type { GuitarPerformanceIntent, GuitarPerformanceTemplateId } from './guitarPerformance'
 import type { ModelPresetKey } from './modelPresets'
 
 import { GuitarHandAnimation } from './guitarHandAnimation'
 import { ModelMouseInput } from './modelMouseInput'
+import { MIKUCAT_GUITAR_OWNED_PARAMETERS, ModelParameterOwnership } from './modelParameterOwnership'
 import { join } from './path'
 
 Config.MouseFollow = false
@@ -22,11 +25,21 @@ Config.MouseFollow = false
 class Live2d {
   private app: Application | null = null
   private guitarExpressionIndex = -1
-  private readonly guitarHands = new GuitarHandAnimation((id, value) => this.setParameterValue(id, value))
+  private readonly guitarParameterOwner = Symbol('mikucat-guitar-animation')
+  private readonly parameterOwnership = new ModelParameterOwnership(
+    (id, value, weight) => this.setParameterValue(id, value, weight),
+    id => this.getParameterValueRange(id),
+  )
+
+  private readonly guitarHands = new GuitarHandAnimation((id, value) => {
+    this.parameterOwnership.write(this.guitarParameterOwner, id, value)
+  })
+
   private readonly updateGuitarHands = (ticker: Ticker) => {
-    this.guitarHands.update(ticker.deltaMS, this.mouseHandPose(), this.mouseHeadPose())
+    this.guitarHands.update(ticker.deltaMS, undefined, this.mouseHeadPose())
     if (!this.guitarHands.isActive) {
       Ticker.shared.remove(this.updateGuitarHands)
+      this.parameterOwnership.release(this.guitarParameterOwner)
       this.mouseInput.setEnabled(true)
     }
   }
@@ -40,6 +53,22 @@ class Live2d {
     const { phase } = this.guitarHands.snapshot
 
     return phase === 'entering' || phase === 'playing'
+  }
+
+  public get guitarPerformanceSnapshot() {
+    return this.guitarHands.snapshot
+  }
+
+  public setGuitarPerformanceIntent(intent: GuitarPerformanceIntent) {
+    return this.guitarHands.setIntent(intent)
+  }
+
+  public setGuitarPerformanceTemplateOverride(templateId?: GuitarPerformanceTemplateId) {
+    return this.guitarHands.setTemplateOverride(templateId)
+  }
+
+  public setGuitarMotifPreview(motifId?: GuitarMotifId) {
+    return this.guitarHands.setMotifPreview(motifId)
   }
 
   private initApp() {
@@ -114,6 +143,7 @@ class Live2d {
   public destroy() {
     Ticker.shared.remove(this.updateGuitarHands)
     this.guitarHands.abort()
+    this.parameterOwnership.release(this.guitarParameterOwner)
     this.mouseInput.reset()
     this.guitarExpressionIndex = -1
 
@@ -152,21 +182,14 @@ class Live2d {
     this.model.setExpression({ index })
 
     if (index === this.guitarExpressionIndex) {
-      const initialPose = this.mouseHandPose()
       const initialHead = this.mouseHeadPose()
+      if (!this.parameterOwnership.acquire(this.guitarParameterOwner, MIKUCAT_GUITAR_OWNED_PARAMETERS)) return
       this.mouseInput.setEnabled(false)
-      if (this.guitarHands.start(initialPose, initialHead)) Ticker.shared.add(this.updateGuitarHands)
+      if (this.guitarHands.start(undefined, initialHead)) Ticker.shared.add(this.updateGuitarHands)
     } else if (this.guitarHands.isActive) {
-      this.guitarHands.stop(this.mouseHandPose(), this.mouseHeadPose())
+      this.guitarHands.stop(undefined, this.mouseHeadPose())
     } else {
       this.mouseInput.setEnabled(true)
-    }
-  }
-
-  private mouseHandPose() {
-    return {
-      x: this.mouseInput.latest('ParamMouseX') ?? 0,
-      y: this.mouseInput.latest('ParamMouseY') ?? 0,
     }
   }
 
@@ -181,8 +204,8 @@ class Live2d {
     return this.model?.getParameterValueRangeById(id)
   }
 
-  public setParameterValue(id: string, value: number | boolean) {
-    return this.model?.setParameterValueById(id, Number(value))
+  public setParameterValue(id: string, value: number | boolean, weight = 1) {
+    return this.model?.setParameterValueById(id, Number(value), weight)
   }
 
   public setMotionSoundEnabled(enabled: boolean) {

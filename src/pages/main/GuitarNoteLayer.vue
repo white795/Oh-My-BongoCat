@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GuitarNote } from '@/utils/guitarNoteEffect'
+import type { GuitarNote } from '@/utils/guitarEffectEngine'
 
 defineProps<{
   notes: readonly GuitarNote[]
@@ -248,6 +248,60 @@ function noteStyle(note: GuitarNote) {
       </svg>
 
       <svg
+        v-else-if="note.variant === 'sharp'"
+        class="note-symbol"
+        viewBox="0 0 90 72"
+      >
+        <path
+          class="note-accent-stroke accidental-sharp"
+          d="M19 20L16 55M31 18L28 53M11 32L37 26M10 44L36 38"
+        />
+        <ellipse
+          cx="61"
+          cy="57"
+          rx="11"
+          ry="7.5"
+          transform="rotate(-14 61 57)"
+        />
+        <rect
+          height="41"
+          rx="3"
+          width="6"
+          x="69"
+          y="15"
+        />
+        <path d="M72 15C80 14 85 10 88 13C89 19 84 25 76 27L72 28Z" />
+      </svg>
+
+      <svg
+        v-else-if="note.variant === 'flat'"
+        class="note-symbol"
+        viewBox="0 0 90 72"
+      >
+        <path
+          class="note-accent"
+          clip-rule="evenodd"
+          d="M16 17H21V34C25 30 33 30 36 35C40 43 33 52 16 58V17ZM21 39V50C29 46 33 42 31 38C30 35 25 36 21 39Z"
+          fill-rule="evenodd"
+        />
+        <ellipse
+          cx="61"
+          cy="57"
+          rx="11"
+          ry="7.5"
+          transform="rotate(-14 61 57)"
+        />
+        <rect
+          height="41"
+          rx="3"
+          width="6"
+          x="69"
+          y="15"
+        />
+        <path d="M72 15C80 14 85 10 88 13C89 19 84 25 76 27L72 28Z" />
+      </svg>
+
+      <svg
         v-else-if="note.variant === 'sixteenth'"
         class="note-symbol"
         viewBox="0 0 116 72"
@@ -356,6 +410,10 @@ function noteStyle(note: GuitarNote) {
   width: clamp(40px, 13vw, 62px);
 }
 
+.guitar-note:is([data-variant='sharp'], [data-variant='flat']) {
+  width: clamp(27px, 9vw, 44px);
+}
+
 .guitar-note:is([data-variant='rest'], [data-variant='eighthRest']) {
   width: clamp(16px, 6vw, 30px);
 }
@@ -382,6 +440,10 @@ function noteStyle(note: GuitarNote) {
   stroke: var(--note-accent-color);
   stroke-linecap: round;
   stroke-width: 4;
+}
+
+.accidental-sharp {
+  stroke-width: 5;
 }
 
 .note-mark {

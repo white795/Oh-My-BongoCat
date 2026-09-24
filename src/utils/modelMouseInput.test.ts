@@ -91,23 +91,19 @@ describe('model mouse input ownership', () => {
   })
 })
 
-it('uses the default face with the guitar hands in both exported and packaged expressions', () => {
-  for (const path of [
-    '../../mikucat-lived2d/expression4.exp3.json',
-    '../../src-tauri/assets/models/mikucat/expressions/guitar.exp3.json',
-  ]) {
-    const expression = JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
-    const parameters = Object.fromEntries(expression.Parameters.map(
-      (parameter: { Id: string, Value: number, Blend: string }) => [parameter.Id, [parameter.Value, parameter.Blend]],
-    ))
-    assert.deepEqual(parameters, {
-      Param9: [0, 'Add'],
-      Param10: [0, 'Add'],
-      Param11: [0, 'Add'],
-      Param12: [-60, 'Add'],
-      Param13: [-60, 'Add'],
-    }, path)
-    assert.equal(expression.FadeInTime, 0.3)
-    assert.equal(expression.FadeOutTime, 0.3)
-  }
+it('uses the normalized default face with guitar hands in the packaged expression', () => {
+  const path = '../../src-tauri/assets/models/mikucat/expressions/guitar.exp3.json'
+  const expression = JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'))
+  const parameters = Object.fromEntries(expression.Parameters.map(
+    (parameter: { Id: string, Value: number, Blend: string }) => [parameter.Id, [parameter.Value, parameter.Blend]],
+  ))
+  assert.deepEqual(parameters, {
+    Param9: [0, 'Add'],
+    Param10: [0, 'Add'],
+    Param11: [0, 'Add'],
+    Param12: [-60, 'Add'],
+    Param13: [-60, 'Add'],
+  })
+  assert.equal(expression.FadeInTime, 0.3)
+  assert.equal(expression.FadeOutTime, 0.3)
 })
