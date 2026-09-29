@@ -145,8 +145,8 @@ export function mapGuitarStrumPose(pose: HandPose): HandPose {
   return rotatePose(pose, GUITAR_STRUM.angleDegrees)
 }
 
-export function mapGuitarFrettingPose(pose: HandPose): HandPose {
-  return rotatePose(pose, GUITAR_FRETTING.angleDegrees)
+export function mapGuitarFrettingPose(pose: HandPose, angleDegrees: number = GUITAR_FRETTING.angleDegrees): HandPose {
+  return rotatePose(pose, angleDegrees)
 }
 
 // Head angles also deform the torso, but NOT the guitar/hands. Tune their alignment visually.

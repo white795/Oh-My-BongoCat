@@ -1,18 +1,19 @@
 # Plan 022: Guitar Effect Engine Extraction
 
-- Status: active
+- Status: waiting-integration
 - Summary: pending
 - Branch: `feat/mikucat-v2-animation-engine`
 - Visual baseline: [Plan 019](../../feat-mikucat-state-machine/plans/plan-019-mikucat-guitar-notes.md)
 - State contract: [Plan 020](../../feat-mikucat-state-machine/plans/plan-020-guitar-mode-animation-contract.md)
-- Runs alongside: [Plan 021](plan-021-mikucat-v2-animation-engine.md)（independently active）
+- Completed prerequisite: [Plan 021](plan-021-mikucat-v2-animation-engine.md)（动画规划器和 durable 端口已冻结）
+- Waits for: 后续表现层 integration plan（尚未创建）
 
 ## Goal
 
 把 Plan 019 为快速验证而混合在 `GuitarNoteEffect` 内的吉他输入语义与视觉实例拆开，形成不读取
 原始键盘、不计算输入窗口或静默时间的独立特效机。首阶段保留已经验收的音符图形、配色、轨迹、
-节流、容量和生命周期，不接入 `CharacterStateUpdate` 总线，也不修改动画机；等 Plan 021 恢复并
-完成后，再由 integration plan 把两个表现消费者一次性接到同一状态输出。
+节流、容量和生命周期，不接入 `CharacterStateUpdate` 总线，也不修改动画机。Plan 021 现已完成；
+本计划继续等待后续 integration plan，把动画机与特效机一次性接到同一状态输出。
 
 ## Scope
 
@@ -41,8 +42,8 @@
        动画数据。
 7. [x] 在不增加状态语义的前提下扩充基础视觉池：新增手绘 `sharp / flat` 组合符号，让现有 POC
        键盘路径可以直接随机触发并用于 Windows 视觉验收。
-8. [ ] Plan 021 完成后另立 integration plan：删除 POC 适配器与页面休止计时器，把正式状态总线同时
-       扇出给动画机和特效机，再执行 Windows dev 联合验收。
+8. [ ] 在后续 integration plan 中删除 POC 适配器与页面休止计时器，把正式状态总线同时扇出给
+       动画机和特效机，再执行 Windows dev 联合验收。
 
 ## Acceptance
 

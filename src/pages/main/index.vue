@@ -26,7 +26,7 @@ import { hideWindow, setAlwaysOnTop, setTaskbarVisibility, showWindow } from '@/
 import { useCatStore } from '@/stores/cat'
 import { useGeneralStore } from '@/stores/general.ts'
 import { useModelStore } from '@/stores/model'
-import { IMMERSED_DOUBLE_NOD_MOTIF_ID } from '@/utils/guitarMotifs'
+import { GUITAR_MOTIF_CATALOG } from '@/utils/guitarMotifs'
 import { GUITAR_NOTE_EFFECT, GuitarNoteEffect } from '@/utils/guitarNoteEffect'
 import { GUITAR_CONTINUE_TEMPLATE_ID, GUITAR_INPUT_BASELINE_TEMPLATE_ID, GUITAR_SOFT_CLOSE_TEMPLATE_ID } from '@/utils/guitarPerformance'
 import { isImage } from '@/utils/is'
@@ -53,8 +53,11 @@ let guitarRestTimer: number | undefined
 const { startListening } = useDevice({ onKeyboardPress: handleGuitarKeyPress })
 const guitarDebugProfiles = ['autonomous', 'engaged', 'groove', 'drive'] as const
 const guitarDebugMotifs: readonly { text: string, motifId?: GuitarMotifId }[] = [
-  { text: 'OFF' },
-  { text: 'IMMERSED DOUBLE NOD', motifId: IMMERSED_DOUBLE_NOD_MOTIF_ID },
+  { text: 'AUTO (PLANNER)' },
+  ...GUITAR_MOTIF_CATALOG.map(motif => ({
+    text: `${motif.homeProfile.toUpperCase()} / ${motif.label}`,
+    motifId: motif.id,
+  })),
 ]
 const guitarDebugTemplates: readonly { text: string, templateId?: GuitarPerformanceTemplateId }[] = [
   { text: 'PROFILE DEFAULT' },
@@ -71,6 +74,14 @@ const guitarDebugActivity: Record<GuitarPerformanceProfile, number> = {
 
 function setGuitarDebugProfile(profile: GuitarPerformanceProfile, activity = guitarDebugActivity[profile], releasing = false) {
   return live2d.setGuitarPerformanceIntent({ profile, activity, releasing })
+}
+
+function setGuitarDebugReleasing(releasing: boolean) {
+  const { profile } = live2d.guitarPerformanceSnapshot.requestedIntent
+  const activity = releasing
+    ? Math.min(guitarDebugActivity[profile], 0.15)
+    : guitarDebugActivity[profile]
+  return setGuitarDebugProfile(profile, activity, releasing)
 }
 
 function setGuitarDebugTemplate(templateId?: GuitarPerformanceTemplateId) {
@@ -272,6 +283,19 @@ async function handleContextmenu(event: MouseEvent) {
               text: profile.toUpperCase(),
               checked: live2d.guitarPerformanceSnapshot.requestedIntent.profile === profile,
               action: () => setGuitarDebugProfile(profile),
+            })
+          })),
+        }),
+        await Submenu.new({
+          text: 'Guitar release (dev)',
+          items: await Promise.all([
+            { text: 'ACTIVE', releasing: false },
+            { text: 'RELEASING (LOW ACTIVITY)', releasing: true },
+          ].map(({ text, releasing }) => {
+            return CheckMenuItem.new({
+              text,
+              checked: live2d.guitarPerformanceSnapshot.requestedIntent.releasing === releasing,
+              action: () => setGuitarDebugReleasing(releasing),
             })
           })),
         }),

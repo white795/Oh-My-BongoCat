@@ -1,8 +1,8 @@
-import type { GuitarMotifId } from './guitarMotifs'
+import type { GuitarMotifDefinition, GuitarMotifId } from './guitarMotifs'
 import type { GuitarClip, GuitarEnsembleMotion, GuitarHeadAction, GuitarKey, GuitarMode, GuitarPerformanceIntent, GuitarPerformanceProfile, GuitarPerformanceTemplateId, GuitarPhrase, HandPose } from './guitarPerformance'
 
 import { GuitarHairMotion } from './guitarHairMotion'
-import { GUITAR_MOTIF_PREVIEW, GUITAR_MOTIF_PREVIEW_PHRASE_ID, GUITAR_MOTIF_PREVIEW_SEQUENCE, GUITAR_MOTIFS } from './guitarMotifs'
+import { GUITAR_MOTIF_PREVIEW, GUITAR_MOTIF_PREVIEW_PHRASE_ID, GUITAR_MOTIF_PREVIEW_SEQUENCES, GUITAR_MOTIFS } from './guitarMotifs'
 import { GUITAR_CLIPS, GUITAR_ENSEMBLE_MOTIONS, GUITAR_ENSEMBLE_SCALES, GUITAR_ESTABLISH_PHRASE_ID, GUITAR_HEAD, GUITAR_HEAD_ACTIONS, GUITAR_KINEMATIC_COUPLING, GUITAR_MODES, GUITAR_PERFORMANCE, GUITAR_PERFORMANCE_PROFILES, GUITAR_PERFORMANCE_TEMPLATES, GUITAR_PHRASES, mapGuitarFrettingPose, mapGuitarStrumPose } from './guitarPerformance'
 import { GuitarPerformancePlanner } from './guitarPerformancePlanner'
 import { MIKUCAT_GUITAR_ROLES, MIKUCAT_V2_CHANNELS } from './modelParameterOwnership'
@@ -93,6 +93,7 @@ export class GuitarHandAnimation {
   private recent: string[] = []
   private bpm = 86
   private energy = 0.6
+  private phraseGain = 1
   private home = zero()
   private clipId: GuitarClip = 'settle'
 
@@ -194,9 +195,9 @@ export class GuitarHandAnimation {
   }
 
   /**
-   * Inserts one Motif after A A A-prime for contextual visual review. This is
-   * deliberately separate from production score selection: adoption and exit
-   * happen at phrase boundaries, and no production template schedules it.
+   * Selects a development-only Motif score. Frozen actions use an authored
+   * A/Motif context while deferred experiments may remain isolated. Adoption
+   * and exit happen at phrase boundaries, and no production template schedules it.
    */
   public setMotifPreview(motifId?: GuitarMotifId) {
     if (motifId !== undefined && !(motifId in GUITAR_MOTIFS)) return false
@@ -235,6 +236,7 @@ export class GuitarHandAnimation {
       const profile = GUITAR_PERFORMANCE_PROFILES[this.profile]
       this.bpm = this.profile === 'autonomous' ? 86 : (profile.bpm[0] + profile.bpm[1]) / 2
       this.energy = this.profile === 'autonomous' ? 0.6 : (profile.energy[0] + profile.energy[1]) / 2
+      this.phraseGain = 1
     }
     this.phase = 'entering'
     this.phrase = undefined
@@ -330,6 +332,7 @@ export class GuitarHandAnimation {
     this.activePhraseMotif = undefined
     this.motifPreviewCursor = 0
     this.motifPreviewSlotIndex = undefined
+    this.phraseGain = 1
     this.hairMotion.reset()
   }
 
@@ -424,7 +427,6 @@ export class GuitarHandAnimation {
     if (this.profile !== this.requestedIntent.profile) {
       this.profile = this.requestedIntent.profile
       this.modeRemaining = 0
-      this.performancePlanner.reset()
     }
 
     if (this.activeMotifPreview !== this.requestedMotifPreview) {
@@ -436,32 +438,38 @@ export class GuitarHandAnimation {
     }
 
     const profileConfig = GUITAR_PERFORMANCE_PROFILES[this.profile]
-    const performanceTemplateId = this.templateOverride ?? profileConfig.performanceTemplateId
-    const previewSlot = this.activeMotifPreview
-      ? GUITAR_MOTIF_PREVIEW_SEQUENCE[this.motifPreviewCursor]
+    const performanceTemplateId = this.templateOverride
+    const previewSequence = this.activeMotifPreview
+      ? GUITAR_MOTIF_PREVIEW_SEQUENCES[this.activeMotifPreview]
       : undefined
+    const previewSlot = previewSequence
+      ? previewSequence[this.motifPreviewCursor]
+      : undefined
+    const previewSlotIndex = previewSlot ? this.motifPreviewCursor : undefined
     if (previewSlot) {
-      this.motifPreviewSlotIndex = this.motifPreviewCursor
-      this.motifPreviewCursor = (this.motifPreviewCursor + 1) % GUITAR_MOTIF_PREVIEW_SEQUENCE.length
-      this.activePhraseMotif = previewSlot.kind === 'motif' ? this.activeMotifPreview : undefined
+      this.motifPreviewSlotIndex = previewSlotIndex
+      this.motifPreviewCursor = (this.motifPreviewCursor + 1) % previewSequence!.length
     } else {
-      this.activePhraseMotif = undefined
       this.motifPreviewSlotIndex = undefined
     }
-    const scriptedPlan = !previewSlot && performanceTemplateId
-      ? this.performancePlanner.next(performanceTemplateId)
+    const scriptedPlan = previewSlot && this.activeMotifPreview && previewSlotIndex !== undefined
+      ? this.performancePlanner.preview(previewSlot, this.activeMotifPreview, previewSlotIndex, this.requestedIntent)
+      : performanceTemplateId
+        ? this.performancePlanner.next(performanceTemplateId, this.requestedIntent)
+        : this.performancePlanner.nextPerformance(this.requestedIntent)
+    this.activePhraseMotif = scriptedPlan?.kind === 'motif' ? scriptedPlan.motifId : undefined
+    this.phraseGain = scriptedPlan?.gain ?? 1
+    const scriptedPhraseId = scriptedPlan?.kind === 'phrase'
+      ? scriptedPlan.phraseId
       : undefined
-    const scriptedPhraseId = previewSlot?.kind === 'phrase'
-      ? previewSlot.phraseId
-      : scriptedPlan?.phraseId
     const plannedPhrase = scriptedPhraseId
       ? GUITAR_PHRASES.find(phrase => phrase.id === scriptedPhraseId)
       : undefined
     if (scriptedPhraseId && !plannedPhrase) {
       throw new Error(`Unknown scripted guitar phrase: ${scriptedPhraseId}`)
     }
-    const scriptedPhrase = this.activePhraseMotif
-      ? motifPreviewPhrase(this.activePhraseMotif)
+    const scriptedPhrase = scriptedPlan?.kind === 'motif'
+      ? motifPreviewPhrase(scriptedPlan.motifId)
       : plannedPhrase
     let selectedPhrase: GuitarPhrase | undefined
 
@@ -538,8 +546,8 @@ export class GuitarHandAnimation {
     const [clip, beats, strength] = this.phrase!.steps[this.stepIndex]
     this.clipId = clip
     const durationMs = beats * 60000 / this.bpm
-    const scaleX = GUITAR_PERFORMANCE.travelX * this.energy * strength
-    const scaleY = GUITAR_PERFORMANCE.travelY * this.energy * strength
+    const scaleX = GUITAR_PERFORMANCE.travelX * this.energy * strength * this.phraseGain
+    const scaleY = GUITAR_PERFORMANCE.travelY * this.energy * strength * this.phraseGain
     let previous = 0
     this.targets = GUITAR_CLIPS[clip].map((key) => {
       const pose = mapGuitarStrumPose({
@@ -616,8 +624,10 @@ export class GuitarHandAnimation {
     const phrase = this.phrase!
     const durationMs = phrase.steps.reduce((beats, [, count]) => beats + count, 0) * 60000 / this.bpm
     // Preserve a visible range even during light picking; hand strength is not multiplied in again.
-    const weight = GUITAR_HEAD.minimumWeight + (1 - GUITAR_HEAD.minimumWeight) * Math.min(1, this.energy)
-    const motif = this.activePhraseMotif ? GUITAR_MOTIFS[this.activePhraseMotif] : undefined
+    const weight = (GUITAR_HEAD.minimumWeight
+      + (1 - GUITAR_HEAD.minimumWeight) * Math.min(1, this.energy)) * this.phraseGain
+    const motif: GuitarMotifDefinition | undefined
+      = this.activePhraseMotif ? GUITAR_MOTIFS[this.activePhraseMotif] : undefined
     const previewKeys = (keys: readonly GuitarKey[]) => {
       const mapped = keys.map(key => ({
         ...key,
@@ -640,8 +650,8 @@ export class GuitarHandAnimation {
       value => value * (value < 0 ? GUITAR_HEAD.press : GUITAR_HEAD.lift) * weight,
     ))
 
-    const ensembleWeight = GUITAR_ENSEMBLE_SCALES.minimumWeight
-      + (1 - GUITAR_ENSEMBLE_SCALES.minimumWeight) * Math.min(1, this.energy)
+    const ensembleWeight = (GUITAR_ENSEMBLE_SCALES.minimumWeight
+      + (1 - GUITAR_ENSEMBLE_SCALES.minimumWeight) * Math.min(1, this.energy)) * this.phraseGain
     const motion = GUITAR_ENSEMBLE_MOTIONS[phrase.ensemble]
     for (const name of ENSEMBLE_TRACK_NAMES) {
       const scale = GUITAR_ENSEMBLE_SCALES[name]
@@ -655,7 +665,9 @@ export class GuitarHandAnimation {
         durationMs,
         value => value * scale.x * ensembleWeight * profileGain,
         value => value * scale.y * ensembleWeight * profileGain,
-        name === 'frettingHand' ? mapGuitarFrettingPose : undefined,
+        name === 'frettingHand'
+          ? pose => mapGuitarFrettingPose(pose, motif?.frettingAngleDegrees)
+          : undefined,
       ))
     }
   }

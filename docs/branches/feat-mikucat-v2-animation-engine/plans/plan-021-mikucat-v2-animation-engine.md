@@ -1,7 +1,7 @@
 # Plan 021: MikuCat V2 Multi-channel Animation Engine
 
-- Status: active
-- Summary: pending
+- Status: complete
+- Summary: [Summary 021](../summaries/summary-021-mikucat-v2-animation-engine.md)
 - Branch: `feat/mikucat-v2-animation-engine`
 - Builds on: [Plan 018](../../feat-mikucat-state-machine/plans/plan-018-mikucat-guitar-performance.md)
 - Integration contract: [Plan 020](../../feat-mikucat-state-machine/plans/plan-020-guitar-mode-animation-contract.md)
@@ -22,7 +22,8 @@ Profile，先逐项验收动作，再实现平滑衔接。动画机同时提供�
 - 为拨弦手、吉他反向运动、身体重心、头部点拍和双耳反馈编排协调曲线；
 - 为已与头部网格解耦的鬓发、刘海、马尾和发带增加统一次级运动，不把头发关键帧复制进各乐句；
 - 保留片段连续性、句边界调度、可注入随机源、鼠标交还和模型切换清理；
-- 增加最小动画消费者端口，接收 durable snapshot 与 transient cues，在安全边界应用最新意图；
+- 增加最小 durable 动画消费者端口，在安全边界应用最新 `profile / activity / releasing`；瞬时 cue
+  由并行特效机和未来 integration plan 处理，不进入第一版吉他规划器；
 - 增加仅开发态的 Profile 强制入口，使四种演奏动作可以在状态机合并前分别验收；
 - 完成定向自动化检查并由用户在 Windows dev 中做视觉验收。
 
@@ -45,31 +46,29 @@ Profile，先逐项验收动作，再实现平滑衔接。动画机同时提供�
        `acquire / write / release` 生命周期，证明释放后 physics 或鼠标可以重新接管而不是黏在零值。
 4. [x] 在不改变调度行为的前提下，把旧的手/头耦合姿态数据迁移为多通道 pose；保留单 ticker、
        当前位置/速度连续交接、确定性随机测试和现有乐句选择规则，先让回归测试通过。
-5. [ ] 编排并分别验收四种演奏 Profile。旧的逐句随机组合经 Windows 视觉验收确认缺少意图连接，
-       因此改为先建立演奏语法：第一轮只让三个输入 Profile 确定性重复四拍基础句 A，验证稳定节奏、
-       通道因果与循环边界；该基线已通过，第二轮固定播放 `A → A → A′ → A`，只验证受控变化与
-       双向边界；该实验已通过，第三轮把第四句替换为一次强扫、停稳和 pickup 组成的 Fill，亦已
-       通过两个端点 Profile 的视觉验收并冻结。下一轮只增加一个受控 Motif，再讨论额外 Accent 或
-       八句结构。`AUTONOMOUS` 暂时保留作为旧随机基线。所有阶段继续共用一台播放器和同一时间轴。
-       在增加新乐句前，先把当前固定序列抽成独立演奏规划器，并逐项保持既有视觉输出不变；规划器、
-       `AccentCadence`、`SoftCadence` 及 `CONTINUE / SOFT_CLOSE / ACCENT_CLOSE` 三份模板现已完成并
-       通过视觉验收。首个 Motif 的独立动作资产以及开发态固定编排
-       `A → A → A′ → Motif → A` 的入口/出口均已通过视觉验收；后续 Motif 沿用相同流程，积累出
-       足够动作语汇后再开放带通道所有权契约的 additive mixer 与规划器插槽。当前另已补入一版
-       统一头发次级运动，等待
-       Windows dev 验收方向、幅度和回弹速度；该层不改变任何乐句或模板。
-6. [ ] 四种动作通过后实现平滑衔接并增加动画消费者端口：持续快照 latest-wins、sequence 去重、
-       瞬时重音合并/冷却、只在拍点或乐句边界采纳；无外部意图时继续 `AUTONOMOUS`，不得在端口内
-       解释原始按键和计时语义。
-7. [ ] 只为内置 MikuCat 接入 V2 能力与吉他表达式生命周期；确保退出表情、切换模型、快速重入和
+5. [x] 冻结现有动作库，不再增加 Motif。最终保留 `tuning-listen / lazy-arpeggio / sustain-sway /
+two-note-answer / syncopated-chord-walk / call-response-sway / immersed-double-nod /
+fretboard-slide-accent` 八项；A/A′ 与两类 Cadence 同步冻结。`single-pick-ack` 只保留实验模块，
+       不进入开发菜单的冻结目录或最终规划器候选。统一头发次级运动随上述动作继续参与实机验收，
+       但不再作为扩充动作库的理由。此前提出的其他动作全部留在 backlog。
+6. [x] 验证冻结动作的上下文连续性。七个普通 Motif 使用 `A → Motif → A`，
+       `immersed-double-nod` 使用已验收的 `A → A → A′ → Motif → A`。自动化确认七条局部轨道在
+       两侧边界没有位置重置，Windows dev 确认八项均无跳变、卡顿、反向抽动或异常停顿。A 在低强度
+       Motif 前过强属于编排层级问题，不作为连贯性失败处理。
+7. [x] 按 [Plan 025](plan-025-guitar-performance-planner.md) 扩展 `GuitarPerformancePlanner`：增加
+       Profile 资格、合法前后继、最大连续数量、冷却、近期历史和可审计的乐句强度输出；第一版保持
+       确定性。规划器决定强度策略，播放器只在安全边界执行，冻结动作不内嵌上下文增益。
+8. [x] 只为内置 MikuCat 接入 V2 能力与吉他表达式生命周期；确保退出表情、切换模型、快速重入和
        组件卸载都清理写入并平滑归还鼠标/物理，其他内置和自定义模型行为不变。
-8. [ ] 运行相关行为测试、资源测试、定向 ESLint、TypeScript 检查和差异检查；只修复本计划引入的
+9. [x] 运行相关行为测试、资源测试、定向 ESLint、TypeScript 检查和差异检查；只修复本计划引入的
        问题，不借机重构无关模块。
-9. [ ] 把动画分支同步到独立 Windows 验收镜像 `D:\VibeTool\BongoCat-animation`，不覆盖
-       `D:\VibeTool\BongoCat` 的状态机源码；由用户运行 `pnpm.cmd tauri dev` 验收素材、动作层次、
-       连续性、释放和其他模型回归。
-10. [ ] 固定动画消费者接口与可供合并的提交边界，把验证结果写入本分支 Summary；实际状态机接线
-        留给目标分支新建的 integration plan。
+10. [x] 把动画分支同步到独立 Windows 验收镜像 `D:\VibeTool\BongoCat-animation`，不覆盖
+        `D:\VibeTool\BongoCat` 的状态机源码；由用户运行 `pnpm.cmd tauri dev` 验收素材、动作层次、
+        连续性、释放和其他模型回归。
+11. [x] 冻结 durable 吉他消费者端口与可供合并的语义映射：状态机 `interaction / activity /
+releasing` 一对一映射到动画机 `profile / activity / releasing`，并只在安全乐句边界采纳。
+        generation/revision/sequence、瞬时 cue 去重及真实 `CharacterStateUpdate` 接线明确留给目标
+        分支的 integration plan，不在动画核心复制传输层。
 
 ## Acceptance
 
@@ -89,8 +88,8 @@ Profile，先逐项验收动作，再实现平滑衔接。动画机同时提供�
   视觉上没有明显相位脱节；
 - 吉他态头部运动会带动鬓发、刘海、马尾和发带产生可见但从属的延迟回弹，左右组件不刚性同步；
   不同帧率下结果接近，退出后九个头发覆盖全部释放；
-- durable intent 在安全边界采用最新值，不因同模式重复快照重启动画；密集 `ACCENT` 会按规则
-  合并，`releasing` 后平滑回到 `AUTONOMOUS`；
+- durable intent 在安全边界采用最新值，不因同模式重复快照重启动画；`releasing` 后只播放一次
+  SoftCadence 并平滑进入保持 A；第一版吉他规划器不消费瞬时 cue；
 - 动画机不读取具体键值、不维护输入密度/deadline、不创建音符或其他模型外视觉节点；
 - Windows dev 中主猫、拖动、缩放、镜像、点击、托盘、输入统计和手动模型切换没有可见回归。
 
@@ -349,3 +348,63 @@ Windows dev 视觉判断速度与意图衔接是否自然。随后实机确认�
 运行 MOC 核对确认九个参数范围均为 `-30..30`；30 秒采样中 DRIVE 最大约 `-13.39..12.16`，未触及
 边界。新增 3 项次级运动测试、原 37 项吉他动画测试、Live2D 生命周期和所有权测试均通过；全量
 14 个 utils 测试文件、TypeScript、定向 ESLint 与差异检查通过，等待 Windows dev 视觉验收。
+
+第二个 Motif 选定为按弦手主导的 `fretboard-slide-accent`，用于补充与头身点拍不同的演奏语汇。
+第一轮四拍独立循环通过自动化后，Windows 录像确认大行程没有贴合实际琴颈，且动作仍像一次滑动
+配普通伴奏。第二版按明确段落重编为“身体左倾蓄力 → 双手快速 riff → 向右重扫 → 缓慢归位”：
+中段连续使用三次短 `double`，按弦手在同一窗口快速换位；随后落一次 `accent`，最终留出 1.25 拍
+`settle`。新动作单独使用 `-40°` 按弦映射，已冻结基础乐句和首个 Motif 继续使用原 `40°`，避免
+方向修正回归其他动作。预览器仍只循环该 Motif，不进入生产规划器。修订行为测试先因旧拨弦谱、
+身体幅度、按弦方向和换位次数按预期失败；实现后三个定向测试文件共 50 项通过，等待 Windows dev
+复验。通过后默认使用 `A → Motif → A` 做衔接验收；只有语义明确需要变奏铺垫的特殊动作才允许从
+A′ 进入。
+
+Windows dev 复验后将最后一次向右重扫提高到 `accent 1.12`，身体峰值同步提高到
+`x = 0.50 / y = -0.48`，保留其后的 1.25 拍慢回收；用户确认可以在该版本上进入结构拆分。为下一批
+动作并行开发，原单文件已拆成公共 `types.ts`、唯一 `registry.ts`、两个独立动作模块及各自动作测试；
+动作契约同时固定 ID、显示名和所属 Profile，现有两个动作均标记为 `DRIVE`，该字段暂不驱动播放器。
+根级 `guitarMotifs.ts` 退化为兼容门面，播放器、Live2D 和页面导入路径保持不变。拆分测试先因两个
+动作模块不存在按预期失败；实现后两个动作数据测试、注册表、播放器和 Live2D 桥接定向回归通过，
+完整 16 个 utils 测试文件、TypeScript、定向 ESLint 与差异检查通过。动作数值、预览乐谱和生产
+规划器行为均未改变。
+
+Plan 023 收尾后，八项动作库正式冻结。`lazy-arpeggio` 的最终版本已由 Windows dev 确认通过；
+`fretboard-slide-accent` 与其余七项一并确认为最终保留动作。唯一注册表目录移除
+`single-pick-ack`，但模块和孤立 console 预览继续保留，避免删除实验资产。
+
+任务 6 的连贯性基线现已启动：七个普通 Motif 的开发态乐谱统一为 `A → Motif` 两句循环，因此下
+一轮自然回到 A；`immersed-double-nod` 保持已经实机验收的 `A → A → A′ → Motif → A` 特殊铺垫。
+行为测试先以旧版孤立循环和九项目录按预期失败；实现后固定八项目录、默认与特殊乐谱，并逐项跨越
+全部七条局部轨道的 `A → Motif` 和 `Motif → A` 边界，确认没有瞬时位置重置。当前只完成自动化
+基线，速度、意图和视觉节奏仍需 Windows dev 逐项判断；本轮没有修改任何已冻结动作曲线。
+
+Windows dev 完整观察后确认八项上下文均无不流畅表现，任务 6 通过。低强度 Motif 前后的 A 虽然
+连续，但视觉幅度高于动作主体，形成“载体反客为主”；该现象不属于位置/速度断裂，因此不重开动作
+或连贯性阶段。后续由 Plan 025 让规划器根据 `activity` 输出 A 的载体 `gain`，播放器统一应用，Motif
+继续保持冻结标准曲线。动态 gain 落地后只回归低强度与 DRIVE 两端，不重新验收全部动作。
+
+Plan 025 第一增量现已落地：规划器统一输出乐句/Motif 身份、角色、Profile、gain、插槽和原因；
+activity 经平滑单调曲线生成 A/A′/Cadence 的载体强度，播放器只在乐句边界把它应用到全部七条
+演奏通道，Motif 继续使用标准增益。自动化已覆盖低/高端幅度差、Motif 不缩放和中途 activity 只在
+下一句生效；下一步等待 Windows dev 代表性视觉标定，尚未启用生产 Motif 调度。
+
+三档载体强度通过 Windows dev 后，Plan 025 第二增量已启用生产 Motif 调度。动作元数据拆为
+`homeProfile / minimumProfile`，资格按强度累计；AUTONOMOUS 可使用五项通用动作，DRIVE 可使用全部
+八项，但低状态永远不能选择两个 DRIVE 动作。规划器在主动作池与累计支撑池之间确定性交替，普通
+动作执行 `A → A → Motif → A`，点头动作保留 `A → A → A′ → Motif`。播放器默认消费该结果，模板
+override 与单动作预览不变；Profile 降级会在下一乐句边界撤销尚未开始的高强度动作。
+
+Plan 025 第三增量接入 releasing 规划：释放意图只在乐句边界采纳，已经开始的 Motif 完整结束；剩余
+普通块和待播 Motif 被撤销后只播放一次 SoftCadence，再以随 activity 变化的 A 保持。释放期间 Profile
+下降不会重复收尾，恢复 ACTIVE 时从新的 establish A 开始，不续接旧队列。开发菜单增加 ACTIVE /
+RELEASING 切换；规划器和播放器 Red-Green 回归及相关静态检查通过。Windows dev 随后确认 Motif、
+铺垫句、SoftCadence、保持 A 与恢复 A 的边界均没有断裂，吉他演奏规划与释放路径正式冻结。
+
+最终消费者边界已与状态机分支复核：状态机
+`GuitarInteractionSnapshot.interaction / activity / releasing` 在合并时一对一映射为动画机
+`GuitarPerformanceIntent.profile / activity / releasing`。本计划不复制 `CharacterStateUpdate`，
+不处理 generation/revision/sequence，也不消费瞬时 cue；顶层生命周期仲裁和真实接线留给目标分支
+的 integration plan。
+
+正式收尾运行了全部 23 个 utils 测试文件、TypeScript 检查、吉他相关 ESLint、差异检查和 Vite
+生产构建，均通过。Vite 仅报告既有的动态/静态混合导入与大 chunk 警告；没有新增构建错误。

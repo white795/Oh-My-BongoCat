@@ -145,8 +145,9 @@ V2 的鬓发、马尾、刘海和发带虽然在模型 physics 中消费 `ParamA
 - 长时间吉他演奏必须同时包含近静止、轻缓、常奏和重音段，不以持续摇摆冒充复杂度；
 - `AUTONOMOUS` 暂时保留旧的可注入随机源和既有乐句变化，便于隔离比较；输入态的第一轮 A 基线不
   消费随机源，直到有意设计的四句/八句语法通过验收后才恢复受结构约束的变化；
-- 动画消费者采用“持续快照 latest-wins、瞬时提示 sequence 去重/冷却/合并、只在安全边界采纳”
-  的契约；消费者不能阻塞未来的特效消费者；
+- 未来顶层表现消费者采用“持续快照 latest-wins、瞬时提示 sequence 去重/冷却/合并”的契约；
+  吉他动画核心只在安全边界采纳 durable intent，瞬时提示由特效机优先消费。两个消费者不得互相
+  阻塞；
 - `ANGRY` 和 `RELAXED` 的新动作设计不在首个 V2 吉他升级中展开，但参数所有权和公共端口应允许
   后续复用。
 
@@ -219,14 +220,61 @@ ACCENT_CLOSE`：分别持续演奏、自然收尾和强重音收尾；当前已�
   只回到零增量位置，并保留朝下一轮准备动作的出口速度。禁止在第四次下压和零边界之间再增加一次
   正值过冲，否则会与下一轮抬头组成连续反向。动作资产与通用衔接逻辑分轮验收，避免无法区分曲线
   问题和调度问题；
-- 状态机只表达 `profile / activity / releasing` 和瞬时 cue；规划器在安全边界把意图变成后续乐谱，
+- 后续 Motif 的默认上下文契约为 `A → Motif → A`：A 提供共享入口，Motif 结束后必须回到 A。只有
+  动作语义明确依赖变奏铺垫时，才单独声明 `A′ → Motif → A`，不得把 A′ 固化为所有特色动作的
+  通用入口。开发态预览乐谱按 Motif 独立配置，新动作先只循环自身，视觉冻结后再切换到对应上下文；
+- Motif 源码按动作隔离在 `src/utils/guitarMotifs/`。每个动作只拥有自己的 ID、显示名、
+  `homeProfile / minimumProfile`、四拍数据与同名数据测试。`homeProfile` 表示动作最能代表的强度并
+  控制主动作优先级；`minimumProfile` 表示允许出现的最低强度。候选资格按
+  `AUTONOMOUS < ENGAGED < GROOVE < DRIVE` 累计，高强度可包含低强度动作，低强度绝不能选择高强度
+  动作；两字段不得重新压缩成互斥的单 Profile 分组。
+  `types.ts` 是公共数据契约，`registry.ts` 是动作和开发预览乐谱的唯一汇总点，根级
+  `guitarMotifs.ts` 只保留稳定兼容导出。并行制作动作时，各开发者不得修改注册表、菜单或播放器；
+  所有动作独立通过数据测试后，再由集成方一次性登记和暴露开发菜单，避免共享文件冲突；
+- 动作库按时间职责分层，而不是把所有候选平铺为四拍随机项：`Loop / Phrase` 可以直接占用完整乐句，
+  `Micro Accent` 需要量化到安全拍点并短时插入，`Transition` 负责跨姿态或跨模板连接，
+  `Character / Ending` 需要低频、冷却和合法前后继规则。当前 Motif 契约只承载第一类；其他类别在
+  拥有自己的调度与通道所有权契约前不得伪装成普通四拍 Motif；
+- 当前里程碑已经冻结动作数量：`sustain-sway` 是规划器接入前最后一个新增动作，其余候选只作远期
+  backlog。现有动作完成视觉冻结和上下文连续性后必须进入规划器，不得继续以补充动作数量推迟集成；
+- 状态机只表达 `interaction / activity / releasing` 和瞬时 cue；规划器在安全边界把意图变成后续乐谱，
   播放器只执行乐谱，不解释输入历史、模板规则或“为什么选择这一句”。
+- 规划结果统一携带 `kind / role / profile / gain / reason / slot`。第一版载体强度为
+  `0.60 + 0.40 × smoothstep(activity)`：A、A′ 与 Cadence 在乐句边界采纳并统一缩放七条演奏通道，
+  Motif 保持标准 `gain = 1`。强度属于规划上下文，不得写回冻结动作文件，也不得在乐句中途重算。
+- 自动演奏以确定性四句块运行。普通 Motif 使用 `A → A → Motif → A`，点头 Motif 使用已验收的
+  `A → A → A′ → Motif`；每个 Profile 在 `homeProfile` 相同的主动作池与累计支撑池之间交替选择，
+  两个池各自循环并拒绝立即重复。规划原因必须区分 `performance-home-motif` 与
+  `performance-support-motif`。Profile 改变时只取消尚未开始的旧队列，当前乐句自然完成。
+- `releasing` 是后续乐谱意图，不是逐帧中断信号。规划器在下一乐句边界丢弃未开始的普通块和待播
+  Motif，先且只先播放一次 `SoftCadence`，随后以 `A` 保持并在每个边界重新采纳 activity gain；
+  Profile 在保持期下降不得重播 Cadence。已经开始的 Motif 必须自然结束，`releasing=false` 后从新
+  的 `A` 建立块恢复，不能续接释放前的旧队列。
 
-落地顺序固定为：先抽出演奏规划器并保持当前四句输出逐项不变；再制作 `SoftCadence`，把继续、
-柔和收尾和重音收尾拆成三份可审计模板；随后加入第一种带完整插槽契约的 Motif；最后才让状态意图
-影响模板与 Motif 评分。前三份模板和 `SoftCadence` 已进入代码，但生产默认仍保持已验收的
-`ACCENT_CLOSE`；只有开发态强制入口可以在安全乐句边界切换模板。每一步只新增一个变量并保留独立
-行为测试。
+## Frozen Guitar Consumer Boundary
+
+吉他动画核心以 `GuitarPerformanceIntent` 作为冻结的 durable 端口，不直接依赖状态机 worktree 的
+`CharacterStateUpdate`。最终合并时由顶层表现消费者完成唯一的一对一映射：
+
+| `GuitarInteractionSnapshot` | `GuitarPerformanceIntent` |
+| --------------------------- | ------------------------- |
+| `interaction`               | `profile`                 |
+| `activity`                  | `activity`                |
+| `releasing`                 | `releasing`               |
+
+只有 `snapshot.child.mode === 'guitar'` 且子快照为 active 时才向吉他动画机提交该意图。父级模式进入、
+退出、快速切换以及动画机 `start / stop` 的仲裁归最终顶层消费者，不得由规划器反向推导。
+
+`parentGeneration / revision / sequence` 属于传输与生命周期边界，吉他规划器不保存也不去重；
+`burst` 及 `PRESS / ACCENT / INPUT_REST` 也不属于已冻结的第一版吉他规划输入。瞬时 cue 继续由
+Plan 022 特效机消费，未来若要让 `ACCENT` 改变乐谱，必须另立计划并量化到安全拍点，不能旁路打断
+当前乐句。这样动画分支只冻结演奏能力，真实 `CharacterStateUpdate` 接线在分支合并时一次完成，
+避免为吉他、ANGRY 和豆豆完成动作分别建立临时桥接。
+
+落地顺序固定为：先抽出演奏规划器并保持原四句输出逐项不变；再制作 `SoftCadence`，把继续、柔和
+收尾和重音收尾拆成三份可审计模板；随后接入带完整插槽契约的 Motif，最后让状态意图影响资格、
+强度和释放。三份模板继续作为开发态强制入口保留；生产默认现由累计 Motif 规划器生成四句块，并在
+`releasing` 时复用 `SoftCadence`。每次切换都只在安全乐句边界发生并由独立行为测试保护。
 
 ## Effect Engine Ownership
 

@@ -2,9 +2,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
+import type { GuitarMotifId } from './guitarMotifs.ts'
+
 import { GuitarHandAnimation } from './guitarHandAnimation.ts'
-import { GUITAR_MOTIF_PREVIEW, GUITAR_MOTIF_PREVIEW_PHRASE_ID, IMMERSED_DOUBLE_NOD_MOTIF_ID } from './guitarMotifs.ts'
+import { CALL_RESPONSE_SWAY_MOTIF_ID, FRETBOARD_SLIDE_ACCENT_MOTIF_ID, GUITAR_MOTIF_CATALOG, GUITAR_MOTIF_PREVIEW, GUITAR_MOTIF_PREVIEW_PHRASE_ID, IMMERSED_DOUBLE_NOD_MOTIF_ID, LAZY_ARPEGGIO_MOTIF_ID, SUSTAIN_SWAY_MOTIF_ID, SYNCOPATED_CHORD_WALK_MOTIF_ID, TUNING_LISTEN_MOTIF_ID, TWO_NOTE_ANSWER_MOTIF_ID } from './guitarMotifs.ts'
 import { GUITAR_CLIPS, GUITAR_CONTINUE_TEMPLATE_ID, GUITAR_ENSEMBLE_MOTIONS, GUITAR_ENSEMBLE_SCALES, GUITAR_ESTABLISH_PHRASE_ID, GUITAR_FILL_PHRASE_ID, GUITAR_HEAD, GUITAR_HEAD_ACTIONS, GUITAR_INPUT_BASELINE_TEMPLATE_ID, GUITAR_INPUT_PHRASE_SEQUENCE, GUITAR_KINEMATIC_COUPLING, GUITAR_PERFORMANCE, GUITAR_PERFORMANCE_PROFILES, GUITAR_PERFORMANCE_TEMPLATES, GUITAR_PHRASES, GUITAR_SOFT_CADENCE_PHRASE_ID, GUITAR_SOFT_CLOSE_TEMPLATE_ID, GUITAR_VARIATION_PHRASE_ID, mapGuitarFrettingPose, mapGuitarStrumPose } from './guitarPerformance.ts'
+import { guitarCarrierGain } from './guitarPerformancePlanner.ts'
 import { MIKUCAT_V2_HAIR_CHANNELS } from './modelParameterOwnership.ts'
 
 function seededRandom(seed = 7) {
@@ -41,6 +44,14 @@ function advanceToNextPhrase(animation: GuitarHandAnimation) {
   assert.ok(animation.snapshot.phraseNumber > phraseNumber, 'expected the next phrase to begin')
 }
 
+function advanceToActiveMotif(animation: GuitarHandAnimation, motifId: GuitarMotifId) {
+  for (let phraseCount = 0; phraseCount < 5 && animation.snapshot.activePhraseMotif !== motifId; phraseCount += 1) {
+    advanceToNextPhrase(animation)
+  }
+  assert.equal(animation.snapshot.activePhraseMotif, motifId, `expected ${motifId} to become active`)
+  assert.equal(animation.snapshot.phraseId, GUITAR_MOTIF_PREVIEW_PHRASE_ID)
+}
+
 function clampParameter(value: number) {
   return Math.max(-30, Math.min(30, value))
 }
@@ -71,6 +82,7 @@ describe('guitar performance', () => {
 
     const { animation } = fixture(123)
     animation.setIntent({ profile: 'groove', activity: 0.6, releasing: false })
+    animation.setTemplateOverride(GUITAR_INPUT_BASELINE_TEMPLATE_ID)
     animation.start()
     advance(animation, GUITAR_PERFORMANCE.enterMs)
     const phrase = GUITAR_PHRASES.find(item => item.id === animation.snapshot.phraseId)!
@@ -78,9 +90,10 @@ describe('guitar performance', () => {
     const phraseDuration = phrase.steps.reduce((beats, [, count]) => beats + count, 0) * 60000 / animation.snapshot.bpm
     const weight = GUITAR_ENSEMBLE_SCALES.minimumWeight
       + (1 - GUITAR_ENSEMBLE_SCALES.minimumWeight) * Math.min(1, animation.snapshot.energy)
+    const carrierGain = guitarCarrierGain(0.6)
     const expected = mapGuitarFrettingPose({
-      x: key.x * GUITAR_ENSEMBLE_SCALES.frettingHand.x * weight,
-      y: key.y * GUITAR_ENSEMBLE_SCALES.frettingHand.y * weight,
+      x: key.x * GUITAR_ENSEMBLE_SCALES.frettingHand.x * weight * carrierGain,
+      y: key.y * GUITAR_ENSEMBLE_SCALES.frettingHand.y * weight * carrierGain,
     })
     advance(animation, key.at * phraseDuration)
     near(animation.snapshot.frettingGesture.x, expected.x)
@@ -90,6 +103,7 @@ describe('guitar performance', () => {
   it('gives the fretting hand and body a visible performance range during groove phrases', () => {
     const { animation } = fixture(123)
     animation.setIntent({ profile: 'groove', activity: 0.6, releasing: false })
+    animation.setTemplateOverride(GUITAR_INPUT_BASELINE_TEMPLATE_ID)
     animation.start()
     advance(animation, GUITAR_PERFORMANCE.enterMs)
 
@@ -443,7 +457,7 @@ describe('guitar performance', () => {
     assert.deepEqual(softCadence.head.at(-1), establish.head.at(-1))
   })
 
-  it('plays A A A-prime Fill deterministically for every input profile without motifs or randomization', () => {
+  it('plays the frozen A A A-prime Fill template deterministically when it is explicitly selected', () => {
     for (const profile of ['engaged', 'groove', 'drive'] as const) {
       let randomCalls = 0
       const animation = new GuitarHandAnimation(() => {}, () => {
@@ -451,6 +465,7 @@ describe('guitar performance', () => {
         return 0.37
       })
       animation.setIntent({ profile, activity: profile === 'drive' ? 1 : 0.5, releasing: false })
+      animation.setTemplateOverride(GUITAR_INPUT_BASELINE_TEMPLATE_ID)
       animation.start()
       advance(animation, GUITAR_PERFORMANCE.enterMs)
       const bpm = animation.snapshot.bpm
@@ -474,6 +489,7 @@ describe('guitar performance', () => {
   it('crosses A to A-prime, A-prime to Fill and Fill back to A without resetting any local track', () => {
     const animation = new GuitarHandAnimation(() => {}, () => 0.5)
     animation.setIntent({ profile: 'groove', activity: 0.7, releasing: false })
+    animation.setTemplateOverride(GUITAR_INPUT_BASELINE_TEMPLATE_ID)
     animation.start()
     advance(animation, GUITAR_PERFORMANCE.enterMs)
 
@@ -559,9 +575,91 @@ describe('guitar performance', () => {
     assert.ok(animation.snapshot.phraseNumber > before.phraseNumber)
     assert.equal(animation.snapshot.phase, 'playing')
     assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
-    assert.equal(animation.snapshot.plan?.templateId, GUITAR_INPUT_BASELINE_TEMPLATE_ID)
+    assert.equal(animation.snapshot.plan?.templateId, undefined)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-establish')
     assert.equal(animation.snapshot.plan?.slotIndex, 0)
     assert.equal(animation.snapshot.plan?.templateIteration, 0)
+  })
+
+  it('consumes the automatic performance score when no development override is active', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'drive', activity: 1, releasing: false })
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+
+    assert.equal(animation.snapshot.plan?.reason, 'performance-establish')
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-repeat')
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.phraseId, GUITAR_VARIATION_PHRASE_ID)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-variation')
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.activePhraseMotif, IMMERSED_DOUBLE_NOD_MOTIF_ID)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-home-motif')
+
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+    advanceToNextPhrase(animation)
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.activePhraseMotif, TUNING_LISTEN_MOTIF_ID)
+    assert.equal(animation.snapshot.plan?.profile, 'drive')
+  })
+
+  it('finishes an active Motif before one release cadence, then holds A until input resumes', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'drive', activity: 1, releasing: false })
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToNextPhrase(animation)
+    advanceToNextPhrase(animation)
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.activePhraseMotif, IMMERSED_DOUBLE_NOD_MOTIF_ID)
+
+    animation.setIntent({ profile: 'drive', activity: 0.55, releasing: true })
+    const motifPhraseNumber = animation.snapshot.phraseNumber
+    advance(animation, 200)
+    assert.equal(animation.snapshot.phraseNumber, motifPhraseNumber)
+    assert.equal(animation.snapshot.activePhraseMotif, IMMERSED_DOUBLE_NOD_MOTIF_ID)
+
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.activePhraseMotif, undefined)
+    assert.equal(animation.snapshot.phraseId, GUITAR_SOFT_CADENCE_PHRASE_ID)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-release-cadence')
+
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-release-hold')
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-release-hold')
+
+    animation.setIntent({ profile: 'drive', activity: 0.8, releasing: false })
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-establish')
+    assert.equal(animation.snapshot.plan?.slotIndex, 0)
+  })
+
+  it('drops a queued DRIVE Motif when the profile falls before its feature boundary', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'drive', activity: 1, releasing: false })
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToNextPhrase(animation)
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.phraseId, GUITAR_VARIATION_PHRASE_ID)
+
+    animation.setIntent({ profile: 'autonomous', activity: 0, releasing: false })
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.profile, 'autonomous')
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+    assert.equal(animation.snapshot.activePhraseMotif, undefined)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-establish')
+
+    advanceToNextPhrase(animation)
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.activePhraseMotif, TUNING_LISTEN_MOTIF_ID)
   })
 
   it('adopts and clears a template override only at phrase boundaries', () => {
@@ -571,10 +669,11 @@ describe('guitar performance', () => {
     advance(animation, GUITAR_PERFORMANCE.enterMs + 200)
 
     const before = animation.snapshot
-    assert.equal(before.plan?.templateId, GUITAR_INPUT_BASELINE_TEMPLATE_ID)
+    assert.equal(before.plan?.templateId, undefined)
+    assert.equal(before.plan?.reason, 'performance-establish')
     assert.equal(animation.setTemplateOverride(GUITAR_SOFT_CLOSE_TEMPLATE_ID), true)
     assert.equal(animation.snapshot.templateOverride, GUITAR_SOFT_CLOSE_TEMPLATE_ID)
-    assert.equal(animation.snapshot.plan?.templateId, GUITAR_INPUT_BASELINE_TEMPLATE_ID)
+    assert.equal(animation.snapshot.plan?.templateId, undefined)
     assert.deepEqual(animation.snapshot.strummingHand, before.strummingHand)
 
     advanceToNextPhrase(animation)
@@ -597,7 +696,8 @@ describe('guitar performance', () => {
     assert.equal(animation.setTemplateOverride(undefined), true)
     advanceToNextPhrase(animation)
     assert.equal(animation.snapshot.templateOverride, undefined)
-    assert.equal(animation.snapshot.plan?.templateId, GUITAR_INPUT_BASELINE_TEMPLATE_ID)
+    assert.equal(animation.snapshot.plan?.templateId, undefined)
+    assert.equal(animation.snapshot.plan?.reason, 'performance-establish')
     assert.equal(animation.snapshot.plan?.slotIndex, 0)
   })
 
@@ -627,7 +727,10 @@ describe('guitar performance', () => {
     assert.equal(animation.snapshot.motifPreviewSlotIndex, 3)
     assert.equal(animation.snapshot.activePhraseMotif, IMMERSED_DOUBLE_NOD_MOTIF_ID)
     const previewPlan = animation.snapshot.plan
-    assert.equal(previewPlan, undefined)
+    assert.equal(previewPlan?.kind, 'motif')
+    assert.equal(previewPlan?.motifId, IMMERSED_DOUBLE_NOD_MOTIF_ID)
+    assert.equal(previewPlan?.gain, 1)
+    assert.equal(previewPlan?.reason, 'preview-motif')
 
     const beatMs = 60000 / animation.snapshot.bpm
     const samples = []
@@ -665,6 +768,298 @@ describe('guitar performance', () => {
     const resumedPlan = animation.snapshot.plan
     assert.ok(resumedPlan)
     assert.equal(resumedPlan.slotIndex, 0)
+  })
+
+  it('plays fretboard-slide-accent once between established A phrases', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'groove', activity: 0.7, releasing: false })
+    assert.equal(animation.setMotifPreview(FRETBOARD_SLIDE_ACCENT_MOTIF_ID), true)
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToActiveMotif(animation, FRETBOARD_SLIDE_ACCENT_MOTIF_ID)
+
+    assert.equal(animation.snapshot.phraseId, GUITAR_MOTIF_PREVIEW_PHRASE_ID)
+    assert.equal(animation.snapshot.activePhraseMotif, FRETBOARD_SLIDE_ACCENT_MOTIF_ID)
+    assert.equal(animation.snapshot.motifPreviewSlotIndex, 1)
+
+    const beatMs = 60000 / animation.snapshot.bpm
+    const samples = []
+    const clipSequence: string[] = []
+    for (let elapsed = 0; elapsed <= beatMs * 3.95; elapsed += 10) {
+      samples.push(animation.snapshot)
+      if (clipSequence.at(-1) !== animation.snapshot.clipId) clipSequence.push(animation.snapshot.clipId)
+      animation.update(10)
+    }
+
+    const range = (values: number[]) => Math.max(...values) - Math.min(...values)
+    const frettingTravel = Math.hypot(
+      range(samples.map(sample => sample.frettingGesture.x)),
+      range(samples.map(sample => sample.frettingGesture.y)),
+    )
+    assert.deepEqual(clipSequence, ['pick', 'double', 'accent', 'settle'])
+    assert.ok(frettingTravel > 18, 'the fretting hand should visibly run along the neck')
+    assert.ok(range(samples.map(sample => sample.strummingGesture.x)) > 8, 'the strumming hand should keep playing')
+    assert.ok(range(samples.map(sample => sample.body.x)) > 20, 'the body should travel from a left lean into the right accent')
+    assert.ok(range(samples.map(sample => sample.headGesture.y)) < 18, 'the head response should remain secondary')
+
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+    assert.equal(animation.snapshot.activePhraseMotif, undefined)
+    assert.equal(animation.snapshot.motifPreviewSlotIndex, 0)
+  })
+
+  it('crosses A into every frozen Motif and back to A without resetting local tracks', () => {
+    const frozenDefaultContexts = GUITAR_MOTIF_CATALOG.filter(motif => motif.id !== IMMERSED_DOUBLE_NOD_MOTIF_ID)
+    const trackNames = ['headGesture', 'body', 'frettingGesture', 'strummingGesture', 'guitar', 'leftEar', 'rightEar'] as const
+
+    for (const motif of frozenDefaultContexts) {
+      const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+      animation.setIntent({ profile: motif.homeProfile, activity: 0.6, releasing: false })
+      assert.equal(animation.setMotifPreview(motif.id), true)
+      animation.start()
+      advance(animation, GUITAR_PERFORMANCE.enterMs)
+
+      assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+      assert.equal(animation.snapshot.activePhraseMotif, undefined)
+      assert.equal(animation.snapshot.motifPreviewSlotIndex, 0)
+
+      const crossBoundary = (expectedPhraseId: string) => {
+        const phrase = GUITAR_PHRASES.find(item => item.id === animation.snapshot.phraseId)
+        const beats = phrase
+          ? phrase.steps.reduce((sum, [, count]) => sum + count, 0)
+          : GUITAR_MOTIF_PREVIEW.loopBeats
+        const duration = beats * 60000 / animation.snapshot.bpm
+        advance(animation, duration - 0.1)
+        const before = animation.snapshot
+        animation.update(0.1)
+        const after = animation.snapshot
+
+        assert.equal(after.phraseId, expectedPhraseId)
+        for (const name of trackNames) {
+          assert.ok(
+            Math.hypot(after[name].x - before[name].x, after[name].y - before[name].y) < 0.01,
+            `${motif.id}/${name} should not jump at ${before.phraseId}/${after.phraseId}`,
+          )
+        }
+      }
+
+      crossBoundary(GUITAR_MOTIF_PREVIEW_PHRASE_ID)
+      assert.equal(animation.snapshot.activePhraseMotif, motif.id)
+      assert.equal(animation.snapshot.motifPreviewSlotIndex, 1)
+      assert.equal(animation.snapshot.clipId, motif.steps[0][0])
+
+      crossBoundary(GUITAR_ESTABLISH_PHRASE_ID)
+      assert.equal(animation.snapshot.activePhraseMotif, undefined)
+      assert.equal(animation.snapshot.motifPreviewSlotIndex, 0)
+    }
+  })
+
+  it('scales every A carrier channel from activity while keeping the Motif at standard gain', () => {
+    const trackNames = ['headGesture', 'body', 'frettingGesture', 'strummingGesture', 'guitar', 'leftEar', 'rightEar'] as const
+    const sampleCarrier = (activity: number) => {
+      const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+      animation.setIntent({ profile: 'groove', activity, releasing: false })
+      animation.setMotifPreview(CALL_RESPONSE_SWAY_MOTIF_ID)
+      animation.start()
+      advance(animation, GUITAR_PERFORMANCE.enterMs)
+
+      const carrierPlan = animation.snapshot.plan
+      assert.equal(carrierPlan?.kind, 'phrase')
+      assert.equal(carrierPlan?.gain, guitarCarrierGain(activity))
+      const samples = [animation.snapshot]
+      const beatMs = 60000 / animation.snapshot.bpm
+      for (let elapsed = 10; elapsed <= beatMs * 3.8; elapsed += 10) {
+        animation.update(10)
+        samples.push(animation.snapshot)
+      }
+      const ranges = Object.fromEntries(trackNames.map((name) => {
+        const xs = samples.map(sample => sample[name].x)
+        const ys = samples.map(sample => sample[name].y)
+        return [name, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))]
+      })) as Record<(typeof trackNames)[number], number>
+
+      advanceToActiveMotif(animation, CALL_RESPONSE_SWAY_MOTIF_ID)
+      const motifPlan = animation.snapshot.plan
+      assert.equal(motifPlan?.kind, 'motif')
+      assert.equal(motifPlan?.gain, 1)
+      return ranges
+    }
+
+    const low = sampleCarrier(0)
+    const high = sampleCarrier(1)
+    for (const name of trackNames) {
+      assert.ok(low[name] < high[name] * 0.8, `${name} should visibly follow the carrier gain`)
+    }
+  })
+
+  it('adopts a changed activity gain only when the next phrase begins', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'groove', activity: 0, releasing: false })
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+
+    const currentPhraseNumber = animation.snapshot.phraseNumber
+    assert.equal(animation.snapshot.plan?.gain, guitarCarrierGain(0))
+
+    animation.setIntent({ profile: 'groove', activity: 1, releasing: false })
+    assert.equal(animation.snapshot.phraseNumber, currentPhraseNumber)
+    assert.equal(animation.snapshot.plan?.gain, guitarCarrierGain(0))
+
+    advanceToNextPhrase(animation)
+    assert.equal(animation.snapshot.plan?.gain, guitarCarrierGain(1))
+  })
+
+  it('keeps the tuning body quiet while the head, listening ear and adjustment remain readable', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'autonomous', activity: 0, releasing: false })
+    animation.setMotifPreview(TUNING_LISTEN_MOTIF_ID)
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToActiveMotif(animation, TUNING_LISTEN_MOTIF_ID)
+
+    const beatMs = 60000 / animation.snapshot.bpm
+    const samples = []
+    const clipSequence: string[] = []
+    for (let elapsed = 0; elapsed <= beatMs * 3.98; elapsed += 10) {
+      samples.push(animation.snapshot)
+      if (clipSequence.at(-1) !== animation.snapshot.clipId) clipSequence.push(animation.snapshot.clipId)
+      animation.update(10)
+    }
+
+    const range = (values: number[]) => Math.max(...values) - Math.min(...values)
+    const headTravel = range(samples.map(sample => sample.headGesture.x))
+    const bodyTravel = range(samples.map(sample => sample.body.x))
+    const leftEarLift = range(samples.map(sample => sample.leftEar.y))
+    const rightEarLift = range(samples.map(sample => sample.rightEar.y))
+    const frettingTravel = Math.hypot(
+      range(samples.map(sample => sample.frettingGesture.x)),
+      range(samples.map(sample => sample.frettingGesture.y)),
+    )
+
+    assert.deepEqual(clipSequence, ['pick', 'rest', 'pick', 'settle'])
+    assert.ok(headTravel > 12, 'the listening lean should remain visible after runtime scaling')
+    assert.ok(bodyTravel < 5, 'the torso should not compete with the listening silhouette')
+    assert.ok(leftEarLift > rightEarLift * 3, 'one ear should clearly lead the listening pose')
+    assert.ok(frettingTravel > 8, 'the tuning adjustment should remain visible after neck-axis mapping')
+
+    assert.equal(animation.snapshot.activePhraseMotif, undefined)
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+  })
+
+  it('separates four lazy notes while the body sinks through one slow arc', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'autonomous', activity: 0, releasing: false })
+    animation.setMotifPreview(LAZY_ARPEGGIO_MOTIF_ID)
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToActiveMotif(animation, LAZY_ARPEGGIO_MOTIF_ID)
+
+    const beatMs = 60000 / animation.snapshot.bpm
+    advance(animation, beatMs * 0.2)
+    const samples = []
+    const clipSequence: string[] = []
+    for (let elapsed = 0; elapsed <= beatMs * 3.78; elapsed += 10) {
+      samples.push(animation.snapshot)
+      if (clipSequence.at(-1) !== animation.snapshot.clipId) clipSequence.push(animation.snapshot.clipId)
+      animation.update(10)
+    }
+
+    const range = (values: number[]) => Math.max(...values) - Math.min(...values)
+    const bodyTravel = range(samples.map(sample => sample.body.x))
+    const headTravelX = range(samples.map(sample => sample.headGesture.x))
+    const headTravelY = range(samples.map(sample => sample.headGesture.y))
+    const frettingTravel = Math.hypot(
+      range(samples.map(sample => sample.frettingGesture.x)),
+      range(samples.map(sample => sample.frettingGesture.y)),
+    )
+
+    assert.deepEqual(clipSequence, ['pick', 'rest', 'pick', 'rest', 'pick', 'rest', 'pick', 'rest'])
+    assert.ok(bodyTravel > 8, 'the single lazy body arc should remain visible after runtime scaling')
+    assert.ok(headTravelY > 11 && headTravelX < 3, 'the head should hold a downward look instead of another side gesture')
+    assert.ok(frettingTravel < 3, 'the fretting hand should keep one chord throughout the arpeggio')
+
+    assert.equal(animation.snapshot.activePhraseMotif, undefined)
+    assert.equal(animation.snapshot.phraseId, GUITAR_ESTABLISH_PHRASE_ID)
+  })
+
+  it('keeps recovering through the end of the fourth call-response nod', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'groove', activity: 0.6, releasing: false })
+    animation.setMotifPreview(CALL_RESPONSE_SWAY_MOTIF_ID)
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToActiveMotif(animation, CALL_RESPONSE_SWAY_MOTIF_ID)
+
+    const beatMs = 60000 / animation.snapshot.bpm
+    advance(animation, beatMs * 3.7)
+    const recovery: number[] = []
+    for (let elapsed = 0; elapsed <= beatMs * 0.24; elapsed += 2) {
+      recovery.push(animation.snapshot.head.y)
+      animation.update(2)
+    }
+
+    const recoversContinuously = recovery.every((value, index) => index === 0 || value >= recovery[index - 1] - 0.001)
+    assert.ok(recoversContinuously, 'the visible head should keep recovering through the authored exit')
+  })
+
+  it('carries the syncopated chord-walk torso continuously into its authored exit', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'groove', activity: 0.6, releasing: false })
+    animation.setMotifPreview(SYNCOPATED_CHORD_WALK_MOTIF_ID)
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToActiveMotif(animation, SYNCOPATED_CHORD_WALK_MOTIF_ID)
+
+    const beatMs = 60000 / animation.snapshot.bpm
+    advance(animation, beatMs * 3.65)
+    const pickup: number[] = []
+    for (let elapsed = 0; elapsed <= beatMs * 0.29; elapsed += 2) {
+      pickup.push(animation.snapshot.body.x)
+      animation.update(2)
+    }
+
+    const keepsTravellingLeft = pickup.every((value, index) => index === 0 || value <= pickup[index - 1] + 0.001)
+    assert.ok(keepsTravellingLeft, 'the torso should not rebound before the authored exit')
+  })
+
+  it('settles the two-note acknowledgement continuously through its authored exit', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'engaged', activity: 0.4, releasing: false })
+    animation.setMotifPreview(TWO_NOTE_ANSWER_MOTIF_ID)
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToActiveMotif(animation, TWO_NOTE_ANSWER_MOTIF_ID)
+
+    const beatMs = 60000 / animation.snapshot.bpm
+    advance(animation, beatMs * 3.65)
+    const returnPath: number[] = []
+    for (let elapsed = 0; elapsed <= beatMs * 0.29; elapsed += 2) {
+      returnPath.push(animation.snapshot.head.y)
+      animation.update(2)
+    }
+
+    const keepsSettling = returnPath.every((value, index) => index === 0 || value <= returnPath[index - 1] + 0.001)
+    assert.ok(keepsSettling, 'the acknowledgement should keep settling through its authored exit')
+  })
+
+  it('carries the sustain sway continuously through its authored exit', () => {
+    const animation = new GuitarHandAnimation(() => {}, () => 0.5)
+    animation.setIntent({ profile: 'autonomous', activity: 0, releasing: false })
+    animation.setMotifPreview(SUSTAIN_SWAY_MOTIF_ID)
+    animation.start()
+    advance(animation, GUITAR_PERFORMANCE.enterMs)
+    advanceToActiveMotif(animation, SUSTAIN_SWAY_MOTIF_ID)
+
+    const beatMs = 60000 / animation.snapshot.bpm
+    advance(animation, beatMs * 3.65)
+    const returnPath: number[] = []
+    for (let elapsed = 0; elapsed <= beatMs * 0.29; elapsed += 2) {
+      returnPath.push(animation.snapshot.body.x)
+      animation.update(2)
+    }
+
+    const keepsTravellingLeft = returnPath.every((value, index) => index === 0 || value <= returnPath[index - 1] + 0.001)
+    assert.ok(keepsTravellingLeft, 'the long body sway should keep returning left through its authored exit')
   })
 
   it('releases the fourth nod into the following A without reversing at the inserted boundary', () => {
@@ -832,53 +1227,27 @@ describe('guitar performance', () => {
     assert.equal(writes.some(([id]) => id.startsWith('ParamMouse') || ['Param9', 'Param10', 'Param11'].includes(id)), false)
   })
 
-  it('lets the hands keep playing while gentle phrases give the head long near-still passages', () => {
+  it('plays every AUTONOMOUS-eligible Motif without leaking GROOVE or DRIVE-only actions', () => {
     const { animation } = fixture(123)
-    const seen = new Set<string>()
+    const motifs: string[] = []
     animation.start()
     advance(animation, GUITAR_PERFORMANCE.enterMs)
-    for (let count = 0; count < 100 && seen.size < 3; count++) {
-      const snapshot = animation.snapshot
-      const phrase = GUITAR_PHRASES.find(phrase => phrase.id === snapshot.phraseId)!
-      const duration = phrase.steps.reduce((sum, [, beats]) => sum + beats, 0) * 60000 / snapshot.bpm
-      if (phrase.mode !== 'gentle') {
-        advance(animation, duration)
-        continue
-      }
-
-      // Allow the previous phrase to settle before measuring the quiet passage.
-      advance(animation, duration * 0.25)
-      let previousHead = animation.snapshot.head
-      let stillMs = 0
-      let longestStillMs = 0
-      let handMinX = Infinity
-      let handMaxX = -Infinity
-      let handMinY = Infinity
-      let handMaxY = -Infinity
-      for (let elapsed = duration * 0.25; elapsed < duration - 1e-7;) {
-        const delta = Math.min(10, duration - elapsed)
-        animation.update(delta)
-        elapsed += delta
-        const { head, pose } = animation.snapshot
-        assert.ok(Math.abs(head.x) < 6 && Math.abs(head.y) < 6, `${phrase.id}: light picking should not rock the body`)
-        stillMs = Math.hypot(head.x - previousHead.x, head.y - previousHead.y) < 0.002 * delta
-          ? stillMs + delta
-          : 0
-        longestStillMs = Math.max(longestStillMs, stillMs)
-        previousHead = head
-        handMinX = Math.min(handMinX, pose.x)
-        handMaxX = Math.max(handMaxX, pose.x)
-        handMinY = Math.min(handMinY, pose.y)
-        handMaxY = Math.max(handMaxY, pose.y)
-      }
-      assert.ok(longestStillMs >= 500, `${phrase.id}: allow at least half a second of near stillness`)
-      assert.ok(
-        Math.hypot(handMaxX - handMinX, handMaxY - handMinY) > 5,
-        `${phrase.id}: hands should continue playing while the head rests`,
-      )
-      seen.add(phrase.id)
+    for (let phrase = 0; phrase < 24 && motifs.length < 5; phrase++) {
+      const motifId = animation.snapshot.activePhraseMotif
+      if (motifId) motifs.push(motifId)
+      advanceToNextPhrase(animation)
     }
-    assert.equal(seen.size, 3, 'exercise all light-picking phrases')
+
+    assert.deepEqual(motifs, [
+      TUNING_LISTEN_MOTIF_ID,
+      TWO_NOTE_ANSWER_MOTIF_ID,
+      LAZY_ARPEGGIO_MOTIF_ID,
+      CALL_RESPONSE_SWAY_MOTIF_ID,
+      SUSTAIN_SWAY_MOTIF_ID,
+    ])
+    assert.ok(!motifs.includes(SYNCOPATED_CHORD_WALK_MOTIF_ID))
+    assert.ok(!motifs.includes(IMMERSED_DOUBLE_NOD_MOTIF_ID))
+    assert.ok(!motifs.includes(FRETBOARD_SLIDE_ACCENT_MOTIF_ID))
   })
 
   it('keeps the same pose for the same elapsed time at different frame rates', () => {
@@ -895,15 +1264,15 @@ describe('guitar performance', () => {
     assert.equal(slow.animation.snapshot.phraseId, fast.animation.snapshot.phraseId)
   })
 
-  it('finishes the authored head trajectory despite short hand clips and rests inside the phrase', () => {
+  it('finishes the authored A head trajectory under its planned carrier gain', () => {
     const animation = new GuitarHandAnimation(() => {}, () => 0.5)
     animation.start()
     advance(animation, GUITAR_PERFORMANCE.enterMs)
     const snapshot = animation.snapshot
     const phrase = GUITAR_PHRASES.find(phrase => phrase.id === snapshot.phraseId)!
-    assert.ok(phrase.steps.some(([clip, beats]) => clip === 'rest' && beats < 0.5))
     const duration = phrase.steps.reduce((beats, [, count]) => beats + count, 0) * 60000 / snapshot.bpm
-    const weight = GUITAR_HEAD.minimumWeight + (1 - GUITAR_HEAD.minimumWeight) * Math.min(1, snapshot.energy)
+    const weight = (GUITAR_HEAD.minimumWeight
+      + (1 - GUITAR_HEAD.minimumWeight) * Math.min(1, snapshot.energy)) * (snapshot.plan?.gain ?? 1)
     let previous = 0
     for (const key of phrase.head) {
       advance(animation, (key.at - previous) * duration)
@@ -911,58 +1280,6 @@ describe('guitar performance', () => {
       near(animation.snapshot.headGesture.y, key.y * (key.y < 0 ? GUITAR_HEAD.press : GUITAR_HEAD.lift) * weight)
       previous = key.at
     }
-  })
-
-  it('lands an accent nod in under 300 ms, holds its weight briefly and recovers without another large swing', () => {
-    const { animation } = fixture(123)
-    const seen = new Set<string>()
-    animation.start()
-    advance(animation, GUITAR_PERFORMANCE.enterMs)
-    for (let count = 0; count < 150 && seen.size < 2; count++) {
-      const snapshot = animation.snapshot
-      const phrase = GUITAR_PHRASES.find(phrase => phrase.id === snapshot.phraseId)!
-      const beatMs = 60000 / snapshot.bpm
-      const beats = phrase.steps.reduce((sum, [, count]) => sum + count, 0)
-      if (phrase.mode !== 'accent') {
-        advance(animation, beats * beatMs)
-        continue
-      }
-
-      // The accented hand stroke is the timing cue, not a separate nodding clock.
-      let elapsedBeats = 0
-      let strikeBeat = 0
-      for (const [clip, duration] of phrase.steps) {
-        if (clip === 'accent') {
-          const strike = GUITAR_CLIPS[clip].reduce((peak, key) => key.x > peak.x ? key : peak)
-          strikeBeat = elapsedBeats + strike.at * duration
-        }
-        elapsedBeats += duration
-      }
-      const liftBeat = strikeBeat - 0.34
-      const pressBeat = strikeBeat + 0.06
-      const holdBeat = pressBeat + 0.16
-      const reboundBeat = strikeBeat + 1.5
-      assert.ok((pressBeat - liftBeat) * beatMs < 300, 'the accent downstroke should be short and decisive')
-      advance(animation, liftBeat * beatMs)
-      const lifted = animation.snapshot.head
-      advance(animation, (pressBeat - liftBeat) * beatMs)
-      const pressed = animation.snapshot.head
-      const pressedGesture = animation.snapshot.headGesture
-      assert.ok(lifted.y > 18, `${phrase.id}: lift should prepare the main strum`)
-      assert.ok(pressed.y < -22, `${phrase.id}: press should land close to the hand's main strum`)
-      assert.ok(Math.abs(pressed.x - lifted.x) < 6, `${phrase.id}: the nod should not be hidden by a lateral sweep`)
-      advance(animation, (holdBeat - pressBeat) * beatMs)
-      near(animation.snapshot.headGesture.y, pressedGesture.y)
-      assert.ok(
-        Math.abs(animation.snapshot.head.y - pressed.y) < 4,
-        `${phrase.id}: body follow-through should not erase the held accent`,
-      )
-      advance(animation, (reboundBeat - holdBeat) * beatMs)
-      assert.ok(animation.snapshot.head.y > 0 && animation.snapshot.head.y < 6, `${phrase.id}: recover to a calm pose`)
-      seen.add(phrase.id)
-      advance(animation, (beats - reboundBeat) * beatMs)
-    }
-    assert.equal(seen.size, 2, 'exercise both accent phrases')
   })
 
   it('does not restart or add a second loop when guitar is selected again', () => {
@@ -1027,10 +1344,11 @@ describe('guitar performance', () => {
     assert.deepEqual(writes, [])
   })
 
-  it('uses varied phrases, rests, emphasis cooldown and recovery during sustained playing', () => {
+  it('keeps cumulative automatic performance bounded and varied during sustained playing', () => {
     const { animation, writes } = fixture(123)
     animation.start()
     const phrases: Array<GuitarHandAnimation['snapshot']> = []
+    const motifs: string[] = []
     const clips = new Set<string>()
     let phraseNumber = 0
     let previousPose = animation.snapshot.pose
@@ -1061,25 +1379,27 @@ describe('guitar performance', () => {
       clips.add(snapshot.clipId)
       if (snapshot.phraseNumber !== phraseNumber) {
         phrases.push(snapshot)
+        if (snapshot.activePhraseMotif) motifs.push(snapshot.activePhraseMotif)
         phraseNumber = snapshot.phraseNumber
       }
       writes.length = 0
     }
-    assert.ok(new Set(phrases.map(p => p.phraseId)).size >= 7)
-    assert.ok(clips.has('rest') && clips.has('accent') && clips.has('double'))
+    assert.deepEqual(new Set(motifs), new Set([
+      TUNING_LISTEN_MOTIF_ID,
+      LAZY_ARPEGGIO_MOTIF_ID,
+      SUSTAIN_SWAY_MOTIF_ID,
+      TWO_NOTE_ANSWER_MOTIF_ID,
+      CALL_RESPONSE_SWAY_MOTIF_ID,
+    ]))
+    assert.ok(clips.has('rest') && clips.has('down') && clips.has('up'))
     assert.ok(headMinY < -5, 'emphasis should produce a visible nod')
     assert.ok(headMaxX - headMinX > 4, 'head should shift weight across phrases')
-    let lastAccent = -100
-    for (let i = 0; i < phrases.length; i++) {
-      if (i > 0) assert.notEqual(phrases[i].phraseId, phrases[i - 1].phraseId)
-      if (phrases[i].mode !== 'accent') continue
-      assert.ok(i - lastAccent >= GUITAR_PERFORMANCE.accentCooldown)
-      if (i + 1 < phrases.length) assert.equal(phrases[i + 1].mode, 'release')
-      lastAccent = i
+    for (let index = 1; index < motifs.length; index++) {
+      assert.notEqual(motifs[index], motifs[index - 1])
     }
   })
 
-  it('only samples randomness at phrase boundaries, not on individual frames', () => {
+  it('does not sample randomness for the deterministic automatic score', () => {
     let calls = 0
     const animation = new GuitarHandAnimation(() => {}, () => {
       calls++
@@ -1087,9 +1407,8 @@ describe('guitar performance', () => {
     })
     animation.start()
     advance(animation, GUITAR_PERFORMANCE.enterMs + 1)
-    const count = calls
     advance(animation, 1000, 5)
-    assert.equal(calls, count)
+    assert.equal(calls, 0)
   })
 
   it('does not race through a backlog when rendering resumes after a long pause', () => {
