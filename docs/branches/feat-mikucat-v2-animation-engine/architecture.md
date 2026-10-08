@@ -116,9 +116,25 @@ ANGRY 动画只消费状态机已经归约好的 durable intensity：`annoyed / 
 ticker 和一套连续姿态播放器：档位变化更新后续动作意图，不在当前帧重启或跳零。头发次级运动
 应抽为 MikuCat 公共能力并由吉他与 ANGRY 共用，不能复制两套弹簧常量后分别漂移。
 
-模型动画和模型外特效仍为并列消费者：durable intensity 决定持续姿态，未来
-`anger-escalated` cue 可以触发一次性烟雾、火花或气场强调。动画机和特效机不得互相调用；两者只在
-最终 integration plan 中由同一 `CharacterStateUpdate` 扇出。
+模型动画和模型外特效仍为并列消费者：durable intensity 决定持续姿态，`anger-escalated` cue
+触发一次性模型外强调。动画机和特效机不得互相调用；两者只在最终 integration plan 中由同一
+`CharacterStateUpdate` 扇出。
+
+## Angry Effect Boundary
+
+ANGRY 模型外特效机已经作为独立表现消费者冻结。它接收与状态机结构兼容的 active/inactive durable
+snapshot 以及一次性 `anger-escalated` cue：snapshot 只决定当前强度与持续短乐句，cue 才播放升级
+burst。特效机不计算等待起点或 8 秒/25 秒阈值，不读取动画 phase，也不调用 `AngryAnimation`。
+
+特效机内部是 generation/revision/sequence、容量、TTL 和 cadence deadline 的唯一所有者。旧
+generation、重复 revision 和倒序 cue 必须被淘汰；长时间暂停后最多补发一次当前持续乐句，不追赶
+所有错过节拍。页面只按 `nextDeadlineAt` 维护一个 timer 并渲染只读快照，退出、切换模型和组件卸载
+均通过 inactive/deactivate 清空实例与 deadline。
+
+视觉语汇固定为弧形压力线、四圆弧怒气符号、手绘 X、蒸汽和热火花；`annoyed / impatient /
+furious` 通过密度与符号层级区分。空间布局只使用当前 MikuCat 构图下的 `crown / ear / face-side`
+三个受控舞台区，短乐句确定性轮换位置、轨迹、尺度与错峰时间，不进行逐实例完全随机。开发菜单只
+构造合法测试快照/cue；真实 `CharacterStateUpdate` 扇出仍留给目标分支 integration plan。
 
 ## Animation Engine Boundary
 

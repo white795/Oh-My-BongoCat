@@ -1,10 +1,11 @@
 # Plan 026: MikuCat Angry Animation Engine
 
-- Status: active
+- Status: waiting-integration
 - Summary: pending
 - Branch: `feat/mikucat-v2-animation-engine`
 - State contract: [Plan 020](../../feat-mikucat-state-machine/plans/plan-020-guitar-mode-animation-contract.md)
 - Builds on: [Plan 021](plan-021-mikucat-v2-animation-engine.md)
+- Follow-up: [Plan 027](plan-027-angry-effect-engine.md)
 
 ## Goal
 
@@ -64,7 +65,7 @@
        当前姿态；退出和新 generation 重新进入时从明确的进入动作开始。
 8. [ ] 接入内置 MikuCat 的生气表达式生命周期和开发菜单；验证 default/guitar/angry 快速切换时
        参数所有权互斥，最终均能归还鼠标与 physics。实际状态机接线仍不在本计划中。
-9. [ ] 与 Plan 022 复核并列消费者边界：durable intensity 驱动模型动画，未来
+9. [x] 与 Plan 022 / Plan 027 复核并列消费者边界：durable intensity 驱动模型动画，
        `anger-escalated` cue 驱动一次性模型外强调；本计划不让两台引擎互相调用。
 10. [ ] 运行定向测试、完整 utils、TypeScript、ESLint、Vite 构建和差异检查；增量同步 Windows
         镜像并完成三档、升级边界、退出及吉他回归验收。

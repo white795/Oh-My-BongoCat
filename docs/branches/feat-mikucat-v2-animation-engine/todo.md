@@ -18,20 +18,23 @@
 定义的消费者边界。角色状态归约和键盘交互状态机仍归 `feat/mikucat-state-machine`；动画与模型外
 特效均归本分支。吉他动画机已经冻结 `GuitarPerformanceIntent` durable 端口，但不复制状态机
 `CharacterStateUpdate`；真实生命周期、generation/sequence 与 cue 接线留给最终 integration plan。
-下一阶段转入 ANGRY 动画和豆豆完成过渡，Plan 022 特效核心继续等待联合接线。
+ANGRY 三档模型动画与模型外特效现均已完成隔离实现和 Windows dev 视觉验收；下一项尚未启动的
+表现能力是豆豆 `all-sessions-done` 完成过渡，Plan 022 吉他特效核心继续等待联合接线。
 
 ## Active Plan
 
-- [Plan 026](plans/plan-026-angry-animation-engine.md)（active；`annoyed / impatient / furious` 三档模型
-  动画均已完成视觉冻结，下一步明确 ANGRY 模型外特效及升级衔接边界）
+- [Plan 026](plans/plan-026-angry-animation-engine.md)（waiting-integration；`annoyed / impatient / furious`
+  三档模型动画均已完成视觉冻结，安全升级与顶层生命周期等待最终接线）
 - [Plan 022](plans/plan-022-guitar-effect-engine.md)（waiting-integration；特效核心已完成，停止独立扩展，
   等 ANGRY、豆豆完成动作和顶层表现消费者具备后统一接状态总线）
 
-吉他动画计划已经全部关闭。当前只推进 Plan 026；豆豆 `all-sessions-done` 一次性完成动作另立计划，
-二者均不提前复制状态机逻辑。
+当前没有 active plan。Plan 027 已完成；豆豆 `all-sessions-done` 一次性完成动作需另立计划，各消费者
+均不提前复制状态机逻辑。
 
 最近完成：
 
+- [Plan 027](plans/plan-027-angry-effect-engine.md) / [Summary 027](summaries/summary-027-angry-effect-engine.md)：
+  完成三档模型外怒气特效、升级 cue 强调、受控空间槽位和独立开发预览；
 - [Plan 021](plans/plan-021-mikucat-v2-animation-engine.md) / [Summary 021](summaries/summary-021-mikucat-v2-animation-engine.md)：
   完成 MikuCat V2 多通道吉他动画、动作库、上下文连续性、生命周期与稳定 durable 端口；
 - [Plan 025](plans/plan-025-guitar-performance-planner.md) / [Summary 025](summaries/summary-025-guitar-performance-planner.md)：
@@ -44,13 +47,28 @@
 ## Execution Order
 
 1. 吉他动画核心保持冻结，只接受缺陷修复，不再增加动作或扩张第一版规划器语义。
-2. Plan 026 的 `annoyed / impatient / furious` 已完成隔离设计和视觉验收；下一步只处理模型外特效、
-   安全升级与最终接线，不再修改冻结动作曲线。
+2. Plan 026 与 Plan 027 已分别完成三档模型动画和模型外特效的隔离设计及视觉验收，后续只等待
+   integration plan 接入状态总线，不再修改冻结动作曲线或特效语汇。
 3. 单独编排 `all-sessions-done` 豆豆完成动作，验证进入、退出以及被新一代 WORKING/WAITING 抢占。
 4. 动画与特效能力稳定后，在目标分支新建 integration plan，由单一顶层消费者接入
    `CharacterStateUpdate` 并完成联合 Windows dev 验收。
 
 ## Progress Record
+
+Plan 027 已完成。新增独立 `AngryEffectEngine`，以 durable snapshot
+控制三档持续特效、以 `anger-escalated` cue 控制一次性升级强调；引擎负责 generation/revision/
+sequence 淘汰、容量、TTL 和单 cadence deadline，不读取等待起点或复制 8 秒/25 秒阈值。新增只读
+SVG 层绘制压力线、四圆弧怒气结、手绘 X、蒸汽和热火花，开发菜单可独立选择
+`OFF / ANNOYED / IMPATIENT / FURIOUS`。
+首轮外观因固定 cadence、镜像轨迹和四向粗线符号显得僵硬，现已删除旧符号，改为三种弧形压力线、
+三种蒸汽、三种火花及三套受控轮换短乐句；锚点、曲线、尺度、左右顺序和错峰时间都会变化，但不
+引入完全随机。第二轮再加入三种手绘 X 与四段圆弧组成的怒气结；`annoyed` 不增密，`impatient`
+以怒气结和两个错峰 X 表达升级，`furious` 提高为三个 X，并在持续短乐句中受控复用。25 个 utils
+测试文件、TypeScript、定向 ESLint、Vite 构建和差异检查通过；包含新增 X 与怒气结的两个运行源文件
+已增量同步 Windows 动画镜像并通过 SHA-256 核对。参考图复核后又把原本集中在耳侧的锚点拆成
+`crown / ear / face-side` 三个受控舞台区，并将怒气结重画为四段粗短圆弧；升级 burst 的行为测试
+固定三处都必须出现。该增量自动化检查通过，两个运行源文件已同步 Windows 镜像并核对 SHA-256；
+用户完成最终视觉复验后确认特效部分封板。真实状态总线仍不在本计划接入。
 
 Plan 026 首个 Red-Green 增量已完成。状态机分支确认 ANGRY durable intensity 固定为
 `annoyed / impatient / furious`，分别在进入、8 秒和 25 秒到达；动画分支不复制计时。当前新增的

@@ -13,6 +13,7 @@ import { nth } from 'es-toolkit/compat'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 
 import type { AngryAnimationIntensity } from '@/utils/angryAnimation'
+import type { AngryEffectInstance, AngryEffectIntensity } from '@/utils/angryEffectEngine'
 import type { GuitarNote } from '@/utils/guitarEffectEngine'
 import type { GuitarMotifId } from '@/utils/guitarMotifs'
 import type { GuitarPerformanceProfile, GuitarPerformanceTemplateId } from '@/utils/guitarPerformance'
@@ -27,6 +28,7 @@ import { hideWindow, setAlwaysOnTop, setTaskbarVisibility, showWindow } from '@/
 import { useCatStore } from '@/stores/cat'
 import { useGeneralStore } from '@/stores/general.ts'
 import { useModelStore } from '@/stores/model'
+import { AngryEffectEngine } from '@/utils/angryEffectEngine'
 import { GUITAR_MOTIF_CATALOG } from '@/utils/guitarMotifs'
 import { GUITAR_NOTE_EFFECT, GuitarNoteEffect } from '@/utils/guitarNoteEffect'
 import { GUITAR_CONTINUE_TEMPLATE_ID, GUITAR_INPUT_BASELINE_TEMPLATE_ID, GUITAR_SOFT_CLOSE_TEMPLATE_ID } from '@/utils/guitarPerformance'
@@ -36,6 +38,7 @@ import { join } from '@/utils/path'
 import { isWindows } from '@/utils/platform'
 import { clearObject } from '@/utils/shared'
 
+import AngryEffectLayer from './AngryEffectLayer.vue'
 import GuitarNoteLayer from './GuitarNoteLayer.vue'
 
 const appWindow = getCurrentWebviewWindow()
@@ -51,6 +54,13 @@ const guitarNoteEffect = new GuitarNoteEffect()
 const guitarNotes = ref<readonly GuitarNote[]>([])
 const guitarNoteTimers = new Map<number, number>()
 let guitarRestTimer: number | undefined
+const angryEffectEngine = new AngryEffectEngine()
+const angryEffects = ref<readonly AngryEffectInstance[]>([])
+const angryEffectDebugIntensity = ref<AngryEffectIntensity | null>(null)
+let angryEffectTimer: number | undefined
+let angryEffectGeneration = 0
+let angryEffectRevision = 0
+let angryEffectCueSequence = 0
 const { startListening } = useDevice({ onKeyboardPress: handleGuitarKeyPress })
 const angryDebugIntensities: readonly AngryAnimationIntensity[] = ['annoyed', 'impatient', 'furious']
 const guitarDebugProfiles = ['autonomous', 'engaged', 'groove', 'drive'] as const
@@ -78,6 +88,48 @@ function setAngryDebugIntensity(intensity: AngryAnimationIntensity) {
   return live2d.setAngryAnimationIntent({ intensity })
 }
 
+function setAngryEffectDebugIntensity(intensity: AngryEffectIntensity) {
+  const previous = angryEffectDebugIntensity.value
+
+  if (previous !== null && angryIntensityRank(intensity) > angryIntensityRank(previous)) {
+    angryEffectRevision++
+    angryEffectEngine.applySnapshot({
+      lifecycle: 'active',
+      parentGeneration: angryEffectGeneration,
+      revision: angryEffectRevision,
+      intensity,
+    })
+    angryEffectEngine.consume({
+      kind: 'anger-escalated',
+      parentGeneration: angryEffectGeneration,
+      sequence: ++angryEffectCueSequence,
+      intensity,
+    })
+  } else {
+    angryEffectGeneration++
+    angryEffectRevision = 1
+    angryEffectCueSequence = 0
+    angryEffectEngine.applySnapshot({
+      lifecycle: 'active',
+      parentGeneration: angryEffectGeneration,
+      revision: angryEffectRevision,
+      intensity,
+    })
+  }
+
+  angryEffectDebugIntensity.value = intensity
+  syncAngryEffects()
+}
+
+function clearAngryEffectDebug() {
+  angryEffectGeneration++
+  angryEffectRevision = 0
+  angryEffectCueSequence = 0
+  angryEffectDebugIntensity.value = null
+  angryEffectEngine.deactivate(angryEffectGeneration)
+  syncAngryEffects()
+}
+
 function setGuitarDebugProfile(profile: GuitarPerformanceProfile, activity = guitarDebugActivity[profile], releasing = false) {
   return live2d.setGuitarPerformanceIntent({ profile, activity, releasing })
 }
@@ -102,6 +154,13 @@ if (import.meta.env.DEV) {
   Object.assign(window, {
     __BONGO_CAT_ANGRY_DEBUG__: {
       set: setAngryDebugIntensity,
+      effect: {
+        clear: clearAngryEffectDebug,
+        set: setAngryEffectDebugIntensity,
+        snapshot() {
+          return angryEffectEngine.snapshot
+        },
+      },
       snapshot() {
         return live2d.angryAnimationSnapshot
       },
@@ -121,6 +180,7 @@ onMounted(startListening)
 
 onUnmounted(() => {
   clearGuitarNotes()
+  clearAngryEffectDebug()
   handleDestroy()
 })
 
@@ -140,6 +200,7 @@ watch(() => modelStore.currentModel, async (model) => {
   if (!model) return
 
   clearGuitarNotes()
+  clearAngryEffectDebug()
   await handleLoad()
 
   const path = join(model.path, 'resources', 'background.png')
@@ -217,7 +278,29 @@ useTauriListen<number>(LISTEN_KEY.SET_EXPRESSION, ({ payload }) => {
   live2d.setExpression(payload)
 
   if (!live2d.isGuitarPerforming) clearGuitarNotes()
+  if (!live2d.isAngryAnimating) clearAngryEffectDebug()
 })
+
+function angryIntensityRank(intensity: AngryEffectIntensity) {
+  return angryDebugIntensities.indexOf(intensity)
+}
+
+function syncAngryEffects() {
+  if (angryEffectTimer !== undefined) window.clearTimeout(angryEffectTimer)
+
+  angryEffectTimer = undefined
+  angryEffects.value = angryEffectEngine.snapshot
+
+  const deadlineAt = angryEffectEngine.nextDeadlineAt
+
+  if (deadlineAt === undefined) return
+
+  angryEffectTimer = window.setTimeout(() => {
+    angryEffectTimer = undefined
+    angryEffectEngine.advance()
+    syncAngryEffects()
+  }, Math.max(deadlineAt - Date.now(), 0))
+}
 
 function syncGuitarNotes() {
   const notes = guitarNoteEffect.snapshot
@@ -346,6 +429,24 @@ async function handleContextmenu(event: MouseEvent) {
             })
           })),
         }),
+        await Submenu.new({
+          text: 'Angry effect preview (dev)',
+          items: await Promise.all([
+            { text: 'OFF', intensity: null },
+            ...angryDebugIntensities.map(intensity => ({
+              text: intensity.toUpperCase(),
+              intensity,
+            })),
+          ].map(({ text, intensity }) => {
+            return CheckMenuItem.new({
+              text,
+              checked: angryEffectDebugIntensity.value === intensity,
+              action: () => intensity === null
+                ? clearAngryEffectDebug()
+                : setAngryEffectDebugIntensity(intensity),
+            })
+          })),
+        }),
       ]
     : []
 
@@ -414,6 +515,11 @@ function handleMouseMove(event: MouseEvent) {
     <GuitarNoteLayer
       :mirrored="catStore.model.mirror"
       :notes="guitarNotes"
+    />
+
+    <AngryEffectLayer
+      :effects="angryEffects"
+      :mirrored="catStore.model.mirror"
     />
 
     <div
