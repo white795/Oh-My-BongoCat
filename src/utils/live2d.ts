@@ -14,21 +14,31 @@ import { i18n } from '@/locales'
 import type { AngryAnimationIntent } from './angryAnimation'
 import type { GuitarMotifId } from './guitarMotifs'
 import type { GuitarPerformanceIntent, GuitarPerformanceTemplateId } from './guitarPerformance'
+import type { MikuCatEnteredMode, MikuCatPresentationMode } from './mikuCatPresentationConsumer'
 import type { ModelPresetKey } from './modelPresets'
 
 import { AngryAnimation } from './angryAnimation'
+import { CompletionAnimation } from './completionAnimation'
 import { GuitarHandAnimation } from './guitarHandAnimation'
 import { ModelMouseInput } from './modelMouseInput'
-import { MIKUCAT_ANGRY_OWNED_PARAMETERS, MIKUCAT_GUITAR_OWNED_PARAMETERS, ModelParameterOwnership } from './modelParameterOwnership'
+import { MIKUCAT_ANGRY_OWNED_PARAMETERS, MIKUCAT_COMPLETION_OWNED_PARAMETERS, MIKUCAT_GUITAR_OWNED_PARAMETERS, ModelParameterOwnership } from './modelParameterOwnership'
 import { join } from './path'
 
 Config.MouseFollow = false
 
+type MikuCatAnimationMode = 'angry' | 'completion' | 'guitar'
+
 class Live2d {
   private app: Application | null = null
   private angryExpressionIndex = -1
+  private completionExpressionIndex = -1
+  private defaultExpressionIndex = -1
   private guitarExpressionIndex = -1
+  private enteredAnimationModeValue: MikuCatEnteredMode = 'relaxed'
+  private readonly animationModeListeners = new Set<(mode: MikuCatEnteredMode) => void>()
+  private requestedAnimationMode?: MikuCatAnimationMode
   private readonly angryParameterOwner = Symbol('mikucat-angry-animation')
+  private readonly completionParameterOwner = Symbol('mikucat-completion-animation')
   private readonly guitarParameterOwner = Symbol('mikucat-guitar-animation')
   private readonly parameterOwnership = new ModelParameterOwnership(
     (id, value, weight) => this.setParameterValue(id, value, weight),
@@ -43,12 +53,16 @@ class Live2d {
     this.parameterOwnership.write(this.angryParameterOwner, id, value)
   })
 
+  private readonly completionAnimation = new CompletionAnimation((id, value) => {
+    this.parameterOwnership.write(this.completionParameterOwner, id, value)
+  })
+
   private readonly updateAngryAnimation = (ticker: Ticker) => {
     this.angryAnimation.update(ticker.deltaMS)
     if (!this.angryAnimation.isActive) {
       Ticker.shared.remove(this.updateAngryAnimation)
       this.parameterOwnership.release(this.angryParameterOwner)
-      this.syncMouseInputOwnership()
+      this.reconcileAnimationMode()
     }
   }
 
@@ -57,7 +71,26 @@ class Live2d {
     if (!this.guitarHands.isActive) {
       Ticker.shared.remove(this.updateGuitarHands)
       this.parameterOwnership.release(this.guitarParameterOwner)
-      this.syncMouseInputOwnership()
+      this.reconcileAnimationMode()
+    }
+  }
+
+  private readonly updateCompletionAnimation = (ticker: Ticker) => {
+    const previousPhase = this.completionAnimation.snapshot.phase
+
+    this.completionAnimation.update(ticker.deltaMS, this.mouseHeadPose())
+    if (
+      previousPhase === 'playing'
+      && this.completionAnimation.snapshot.phase !== 'playing'
+      && this.requestedAnimationMode === 'completion'
+    ) {
+      this.requestedAnimationMode = undefined
+      this.setBuiltInExpression(this.defaultExpressionIndex)
+    }
+    if (!this.completionAnimation.isActive) {
+      Ticker.shared.remove(this.updateCompletionAnimation)
+      this.parameterOwnership.release(this.completionParameterOwner)
+      this.reconcileAnimationMode()
     }
   }
 
@@ -84,6 +117,38 @@ class Live2d {
     const { phase } = this.guitarHands.snapshot
 
     return phase === 'entering' || phase === 'playing'
+  }
+
+  public get isCompletionAnimating() {
+    return this.completionAnimation.isActive
+  }
+
+  public get enteredAnimationMode(): MikuCatEnteredMode {
+    return this.enteredAnimationModeValue
+  }
+
+  public onAnimationModeChange(listener: (mode: MikuCatEnteredMode) => void) {
+    this.animationModeListeners.add(listener)
+    return () => this.animationModeListeners.delete(listener)
+  }
+
+  public get completionAnimationSnapshot() {
+    return this.completionAnimation.snapshot
+  }
+
+  public playCompletionAnimation() {
+    if (
+      this.defaultExpressionIndex < 0
+      || this.completionExpressionIndex < 0
+      || this.requestedAnimationMode === 'completion'
+      || this.completionAnimation.isActive
+    ) {
+      return false
+    }
+
+    this.requestedAnimationMode = 'completion'
+    this.reconcileAnimationMode()
+    return true
   }
 
   public get guitarPerformanceSnapshot() {
@@ -136,6 +201,12 @@ class Live2d {
     const modelJSON = JSON5.parse(await readTextFile(modelPath))
 
     if (presetKey === 'mikucat') {
+      this.defaultExpressionIndex = modelJSON.FileReferences?.Expressions?.findIndex(
+        (expression: { File: string }) => expression.File === 'expressions/default.exp3.json',
+      ) ?? -1
+      this.completionExpressionIndex = modelJSON.FileReferences?.Expressions?.findIndex(
+        (expression: { File: string }) => expression.File === 'expressions/dot-eyes.exp3.json',
+      ) ?? -1
       this.angryExpressionIndex = modelJSON.FileReferences?.Expressions?.findIndex(
         (expression: { File: string }) => expression.File === 'expressions/angry.exp3.json',
       ) ?? -1
@@ -176,14 +247,21 @@ class Live2d {
 
   public destroy() {
     Ticker.shared.remove(this.updateAngryAnimation)
+    Ticker.shared.remove(this.updateCompletionAnimation)
     Ticker.shared.remove(this.updateGuitarHands)
     this.angryAnimation.abort()
+    this.completionAnimation.abort()
     this.guitarHands.abort()
     this.parameterOwnership.release(this.angryParameterOwner)
+    this.parameterOwnership.release(this.completionParameterOwner)
     this.parameterOwnership.release(this.guitarParameterOwner)
     this.mouseInput.reset()
     this.angryExpressionIndex = -1
+    this.completionExpressionIndex = -1
+    this.defaultExpressionIndex = -1
     this.guitarExpressionIndex = -1
+    this.enteredAnimationModeValue = 'relaxed'
+    this.requestedAnimationMode = undefined
 
     if (!this.model) return
 
@@ -215,37 +293,143 @@ class Live2d {
   }
 
   public setExpression(index: number) {
-    if (!this.model?.getExpressions()[index]) return
+    if (!this.model?.getExpressions()[index]) return false
 
     this.model.setExpression({ index })
 
-    if (index === this.angryExpressionIndex) {
+    this.requestedAnimationMode = index === this.angryExpressionIndex
+      ? 'angry'
+      : index === this.guitarExpressionIndex
+        ? 'guitar'
+        : undefined
+    this.reconcileAnimationMode()
+    return true
+  }
+
+  public applyAgentPresentation(mode: MikuCatPresentationMode) {
+    const index = mode === 'angry'
+      ? this.angryExpressionIndex
+      : mode === 'guitar'
+        ? this.guitarExpressionIndex
+        : this.defaultExpressionIndex
+
+    if (index < 0) return false
+    return this.setExpression(index)
+  }
+
+  public releaseAgentPresentation() {
+    if (this.defaultExpressionIndex < 0) {
+      this.requestedAnimationMode = undefined
+      this.reconcileAnimationMode()
+      return true
+    }
+
+    return this.setExpression(this.defaultExpressionIndex)
+  }
+
+  private reconcileAnimationMode() {
+    if (this.requestedAnimationMode !== 'completion' && this.completionAnimation.isActive) {
+      this.completionAnimation.stop(this.mouseHeadPose())
+      return
+    }
+
+    if (this.requestedAnimationMode === 'completion') {
       if (this.guitarHands.isActive) {
         this.guitarHands.stop(undefined, this.mouseHeadPose())
         return
       }
-      const initialHead = this.mouseHeadPose()
-      if (!this.parameterOwnership.acquire(this.angryParameterOwner, MIKUCAT_ANGRY_OWNED_PARAMETERS)) return
-      this.mouseInput.setEnabled(false)
-      if (this.angryAnimation.start(initialHead)) Ticker.shared.add(this.updateAngryAnimation)
-    } else if (index === this.guitarExpressionIndex) {
       if (this.angryAnimation.isActive) {
         this.angryAnimation.stop(this.mouseHeadPose())
         return
       }
-      const initialHead = this.mouseHeadPose()
-      if (!this.parameterOwnership.acquire(this.guitarParameterOwner, MIKUCAT_GUITAR_OWNED_PARAMETERS)) return
-      this.mouseInput.setEnabled(false)
-      if (this.guitarHands.start(undefined, initialHead)) Ticker.shared.add(this.updateGuitarHands)
-    } else {
-      if (this.angryAnimation.isActive) this.angryAnimation.stop(this.mouseHeadPose())
-      if (this.guitarHands.isActive) this.guitarHands.stop(undefined, this.mouseHeadPose())
-      this.syncMouseInputOwnership()
+
+      this.startCompletionAnimation()
+      return
     }
+
+    if (this.requestedAnimationMode === 'angry') {
+      if (this.guitarHands.isActive) {
+        this.guitarHands.stop(undefined, this.mouseHeadPose())
+        return
+      }
+
+      this.startAngryAnimation()
+      return
+    }
+
+    if (this.requestedAnimationMode === 'guitar') {
+      if (this.angryAnimation.isActive) {
+        this.angryAnimation.stop(this.mouseHeadPose())
+        return
+      }
+
+      this.startGuitarAnimation()
+      return
+    }
+
+    if (this.angryAnimation.isActive) this.angryAnimation.stop(this.mouseHeadPose())
+    if (this.guitarHands.isActive) this.guitarHands.stop(undefined, this.mouseHeadPose())
+    this.syncMouseInputOwnership()
+  }
+
+  private startAngryAnimation() {
+    const initialHead = this.mouseHeadPose()
+    if (!this.parameterOwnership.acquire(this.angryParameterOwner, MIKUCAT_ANGRY_OWNED_PARAMETERS)) return
+
+    this.mouseInput.setEnabled(false)
+    if (this.angryAnimation.start(initialHead)) Ticker.shared.add(this.updateAngryAnimation)
+    if (this.angryAnimation.isActive) this.setEnteredAnimationMode('angry')
+  }
+
+  private startGuitarAnimation() {
+    const initialHead = this.mouseHeadPose()
+    if (!this.parameterOwnership.acquire(this.guitarParameterOwner, MIKUCAT_GUITAR_OWNED_PARAMETERS)) return
+
+    this.mouseInput.setEnabled(false)
+    if (this.guitarHands.start(undefined, initialHead)) Ticker.shared.add(this.updateGuitarHands)
+    if (this.guitarHands.isActive) this.setEnteredAnimationMode('guitar')
+  }
+
+  private startCompletionAnimation() {
+    const initialHead = this.mouseHeadPose()
+    if (!this.parameterOwnership.acquire(
+      this.completionParameterOwner,
+      MIKUCAT_COMPLETION_OWNED_PARAMETERS,
+    )) {
+      return
+    }
+
+    this.mouseInput.setEnabled(false)
+    this.setBuiltInExpression(this.completionExpressionIndex)
+    if (this.completionAnimation.start(initialHead)) {
+      Ticker.shared.add(this.updateCompletionAnimation)
+    }
+    if (this.completionAnimation.isActive) this.setEnteredAnimationMode('completion')
+  }
+
+  private setBuiltInExpression(index: number) {
+    if (index < 0 || !this.model?.getExpressions()[index]) return false
+
+    this.model.setExpression({ index })
+    return true
   }
 
   private syncMouseInputOwnership() {
-    this.mouseInput.setEnabled(!this.angryAnimation.isActive && !this.guitarHands.isActive)
+    const animationsIdle = !this.angryAnimation.isActive
+      && !this.completionAnimation.isActive
+      && !this.guitarHands.isActive
+
+    this.mouseInput.setEnabled(animationsIdle)
+    if (animationsIdle && this.requestedAnimationMode === undefined) {
+      this.setEnteredAnimationMode('relaxed')
+    }
+  }
+
+  private setEnteredAnimationMode(mode: MikuCatEnteredMode) {
+    if (mode === this.enteredAnimationModeValue) return
+
+    this.enteredAnimationModeValue = mode
+    for (const listener of this.animationModeListeners) listener(mode)
   }
 
   private mouseHeadPose() {

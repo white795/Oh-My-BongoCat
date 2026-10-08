@@ -18,18 +18,23 @@
 定义的消费者边界。角色状态归约和键盘交互状态机仍归 `feat/mikucat-state-machine`；动画与模型外
 特效均归本分支。吉他动画机已经冻结 `GuitarPerformanceIntent` durable 端口，但不复制状态机
 `CharacterStateUpdate`；真实生命周期、generation/sequence 与 cue 接线留给最终 integration plan。
-ANGRY 三档模型动画与模型外特效现均已完成隔离实现和 Windows dev 视觉验收；下一项尚未启动的
-表现能力是豆豆 `all-sessions-done` 完成过渡，Plan 022 吉他特效核心继续等待联合接线。
+ANGRY 三档模型动画与模型外特效现均已完成隔离实现和 Windows dev 视觉验收；当前进入
+[Plan 028](plans/plan-028-presentation-transitions.md)，先补齐三档安全升级，再实现跨模式协调、豆豆
+`all-sessions-done` 完成过渡及统一特效生命周期。前三项已冻结，统一消费者核心也已形成可直接接收
+真实状态机输出的结构边界；Plan 022 页面 POC 的替换继续等待最终合并接线。
 
 ## Active Plan
 
+- [Plan 028](plans/plan-028-presentation-transitions.md)（active；ANGRY 三档安全升级已通过 Windows dev，
+  跨模式 latest-wins 交接与豆豆一次性完成动作均已通过 Windows dev；统一表现消费者核心已完成，
+  等待目标分支真实状态总线与页面生命周期接线）
 - [Plan 026](plans/plan-026-angry-animation-engine.md)（waiting-integration；`annoyed / impatient / furious`
   三档模型动画均已完成视觉冻结，安全升级与顶层生命周期等待最终接线）
 - [Plan 022](plans/plan-022-guitar-effect-engine.md)（waiting-integration；特效核心已完成，停止独立扩展，
   等 ANGRY、豆豆完成动作和顶层表现消费者具备后统一接状态总线）
 
-当前没有 active plan。Plan 027 已完成；豆豆 `all-sessions-done` 一次性完成动作需另立计划，各消费者
-均不提前复制状态机逻辑。
+Plan 027 已完成。Plan 028 只编排表现层过渡；各消费者不复制状态机的优先级、阈值或 generation
+生成逻辑。
 
 最近完成：
 
@@ -47,10 +52,9 @@ ANGRY 三档模型动画与模型外特效现均已完成隔离实现和 Windows
 ## Execution Order
 
 1. 吉他动画核心保持冻结，只接受缺陷修复，不再增加动作或扩张第一版规划器语义。
-2. Plan 026 与 Plan 027 已分别完成三档模型动画和模型外特效的隔离设计及视觉验收，后续只等待
-   integration plan 接入状态总线，不再修改冻结动作曲线或特效语汇。
-3. 单独编排 `all-sessions-done` 豆豆完成动作，验证进入、退出以及被新一代 WORKING/WAITING 抢占。
-4. 动画与特效能力稳定后，在目标分支新建 integration plan，由单一顶层消费者接入
+2. 完成 ANGRY 三档同播放器安全升级，不修改已经验收的动作曲线或特效语汇。
+3. 建立默认/吉他/生气的单一模式交接，再单独编排可抢占的 `all-sessions-done` 豆豆完成动作。
+4. 统一吉他与生气特效生命周期；能力稳定后在目标分支新建 integration plan，由顶层消费者接入
    `CharacterStateUpdate` 并完成联合 Windows dev 验收。
 
 ## Progress Record
@@ -69,6 +73,27 @@ SVG 层绘制压力线、四圆弧怒气结、手绘 X、蒸汽和热火花，�
 `crown / ear / face-side` 三个受控舞台区，并将怒气结重画为四段粗短圆弧；升级 burst 的行为测试
 固定三处都必须出现。该增量自动化检查通过，两个运行源文件已同步 Windows 镜像并核对 SHA-256；
 用户完成最终视觉复验后确认特效部分封板。真实状态总线仍不在本计划接入。
+
+Plan 028 的跨模式交接已完成代码与 Windows dev 验收：default / guitar / angry 共用一个
+latest-wins 目标，旧动画释放共享参数后自动启动 pending target，快速反向不会留下半状态。豆豆完成
+动作的首个 Red-Green 增量也已完成：独立 `CompletionAnimation` 播放 1.8 秒一次性头身/双耳/头发
+动作，再以 420ms 回到最新鼠标目标；自然结束切回默认表情，新 guitar / angry 请求可用 280ms
+收势抢占。Windows dev 已确认动作、自然返回和抢占均无问题，该能力据此冻结。
+
+统一生命周期的消费者核心现已完成 Red-Green 实现。`MikuCatPresentationConsumer` 只声明真实
+`CharacterStateUpdate` 的结构子集，将 durable guitar/angry snapshot 映射为现有动画 intent，并把
+presentation、guitar、angry cue 扇出到完成动画及两套模型外特效机；不复制状态机阈值或计时。
+`Live2d` 同时提供“实际动画入场”观察接口，因此跨模式交接期间会立即淘汰旧 generation 特效，
+但目标 cue 只在目标动画真正取得参数所有权后开始显示。完整 27 个 utils 测试文件、TypeScript、
+定向 ESLint、Vite 生产构建与差异检查通过；构建只保留既有动态导入和大 chunk 警告。当前页面仍
+保留 `GuitarNoteEffect` POC 与旧休止计时器；只有在状态机
+分支合入目标工作树后，才能用真实总线实例化消费者、删除 POC 并做联合 Windows dev 验收。
+
+消费者随后补齐可选 `MikuCatEffectRuntime`：以单个最早 deadline 自动推进两套特效机并发布统一
+不可变快照，generation 切换和 dispose 会取消旧 timer，因此最终页面不再需要逐实例计时。该轮还
+修复同模式 generation 换代先 deactivate 导致同代无法重新 activate 的问题；同模式现在原子替换，
+吉他 DOM key 在引擎生命周期内保持单调。完整 27 个 utils 测试文件、TypeScript、定向 ESLint 与
+差异检查通过。真实总线接线仍是当前唯一剩余的表现消费者任务。
 
 Plan 026 首个 Red-Green 增量已完成。状态机分支确认 ANGRY durable intensity 固定为
 `annoyed / impatient / furious`，分别在进入、8 秒和 25 秒到达；动画分支不复制计时。当前新增的

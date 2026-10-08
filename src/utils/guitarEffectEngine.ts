@@ -264,7 +264,6 @@ export class GuitarEffectEngine {
   private resetVisualState() {
     this.notes = []
     this.expiryById.clear()
-    this.noteSequence = 0
     this.lastCueSequence = 0
     this.pressOrdinal = 0
     this.lastTriggerAt = Number.NEGATIVE_INFINITY

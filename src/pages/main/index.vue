@@ -3,7 +3,7 @@ import type { MotionInfo } from 'easy-live2d'
 
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { PhysicalSize } from '@tauri-apps/api/dpi'
-import { CheckMenuItem, Menu, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
+import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu'
 import { sep } from '@tauri-apps/api/path'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { exists, readDir } from '@tauri-apps/plugin-fs'
@@ -171,6 +171,12 @@ if (import.meta.env.DEV) {
       previewMotif: setGuitarDebugMotifPreview,
       snapshot() {
         return live2d.guitarPerformanceSnapshot
+      },
+    },
+    __BONGO_CAT_COMPLETION_DEBUG__: {
+      play: () => live2d.playCompletionAnimation(),
+      snapshot() {
+        return live2d.completionAnimationSnapshot
       },
     },
   })
@@ -420,7 +426,7 @@ async function handleContextmenu(event: MouseEvent) {
   const angryDebugItems = import.meta.env.DEV
     ? [
         await Submenu.new({
-          text: 'Angry intensity — next entry (dev)',
+          text: 'Angry intensity (dev)',
           items: await Promise.all(angryDebugIntensities.map((intensity) => {
             return CheckMenuItem.new({
               text: intensity.toUpperCase(),
@@ -450,11 +456,21 @@ async function handleContextmenu(event: MouseEvent) {
       ]
     : []
 
+  const completionDebugItems = import.meta.env.DEV
+    ? [
+        await MenuItem.new({
+          text: 'Play completion animation (dev)',
+          action: () => live2d.playCompletionAnimation(),
+        }),
+      ]
+    : []
+
   const menu = await Menu.new({
     items: [
       ...await getBaseMenu(),
       ...guitarDebugItems,
       ...angryDebugItems,
+      ...completionDebugItems,
       await PredefinedMenuItem.new({ item: 'Separator' }),
       ...await getExitMenu(),
     ],

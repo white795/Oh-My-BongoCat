@@ -116,12 +116,18 @@ describe('guitar effect engine', () => {
 
     engine.activate(10)
     assert.equal(engine.consume(press(1, 9, 0.05)), undefined)
-    assert.ok(engine.consume(press(1, 10, 0.05)))
+    const firstGenerationNote = engine.consume(press(1, 10, 0.05))!
 
     engine.activate(11)
     assert.deepEqual(engine.snapshot, [])
     assert.equal(engine.consume(press(2, 10, 0.05)), undefined)
-    assert.ok(engine.consume(press(2, 11, 0.05)))
+    const nextGenerationNote = engine.consume(press(2, 11, 0.05))!
+
+    assert.notEqual(
+      nextGenerationNote.id,
+      firstGenerationNote.id,
+      'DOM keys remain monotonic so a new generation remounts its CSS animation',
+    )
   })
 
   it('keeps visual throttling, capacity, removal and lifecycle cleanup inside the engine', () => {

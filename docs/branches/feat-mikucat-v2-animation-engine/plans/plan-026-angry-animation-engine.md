@@ -61,9 +61,9 @@
        Windows dev 观察；通过前不实现后两档。
 5. [x] 实现并隔离验收 `impatient`。必须增加一种可辨识的催促动作，而不是只改速度/幅度。
 6. [x] 实现并隔离验收 `furious`。必须包含清楚的爆发、保持和收势，不得持续机械抖动。
-7. [ ] 验证 `annoyed → impatient → furious` 只在安全动作段边界升级，不重置 ticker、头发弹簧或
+7. [x] 验证 `annoyed → impatient → furious` 只在安全动作段边界升级，不重置 ticker、头发弹簧或
        当前姿态；退出和新 generation 重新进入时从明确的进入动作开始。
-8. [ ] 接入内置 MikuCat 的生气表达式生命周期和开发菜单；验证 default/guitar/angry 快速切换时
+8. [x] 接入内置 MikuCat 的生气表达式生命周期和开发菜单；验证 default/guitar/angry 快速切换时
        参数所有权互斥，最终均能归还鼠标与 physics。实际状态机接线仍不在本计划中。
 9. [x] 与 Plan 022 / Plan 027 复核并列消费者边界：durable intensity 驱动模型动画，
        `anger-escalated` cue 驱动一次性模型外强调；本计划不让两台引擎互相调用。
@@ -96,8 +96,9 @@
 `ParamMouseX/Y` 只改变 `dacong` 与相邻手部网格。持葱手首版实机幅度过大，现保持节拍和方向不变
 并缩至约七成；普通左手 `Param25/26` 增加低幅延迟跟随，峰值不超过参数范围约四分之一。`annoyed` 的
 持葱手始终保持中立，吉他双手与吉他仍不属于 ANGRY。它与 `annoyed` 共用播放器、所有权和头发
-弹簧，不通过倍速或统一倍率生成。开发菜单新增 `Angry intensity — next entry (dev)`，可在下一次进入生气表情前预设
-`ANNOYED / IMPATIENT`；当前档位不会被菜单中途打断。Windows dev 最终确认持葱右手幅度合适、
+弹簧，不通过倍速或统一倍率生成。当时开发菜单以 `Angry intensity — next entry (dev)` 在下一次进入
+生气表情前预设 `ANNOYED / IMPATIENT`，不会中途打断当前档位；Plan 028 完成安全升级后，该入口已改为
+实时 `Angry intensity (dev)`，在循环闭合点采纳。Windows dev 最终确认持葱右手幅度合适、
 普通左手的从属摆动自然，第二档据此冻结。
 
 第三个 Red-Green 增量已完成代码，等待视觉验收。最初尝试的单次起跳在 Windows dev 中暴露模型
@@ -110,6 +111,13 @@ ANGRY 不再获取或写入 `Param36..41`。当前 `furious` 改为 5.0 秒、25
 过度逐击跟随；当前在重砸前增加一个短暂抬手保持、砸下后增加压住姿态，并把左手改为低频承力弧线。
 Windows dev 复验确认修改后整体效果良好，`furious` 据此冻结。`annoyed / impatient / furious` 三档
 隔离动画资产现已全部完成；后续不再调动作曲线，下一阶段转入模型外特效边界与强度升级衔接。
+
+Plan 028 随后补齐播放中的安全升级：durable intensity 在当前循环闭合点采纳，以 420ms Hermite
+过渡到最新目标；过渡保持原 ticker 和头发弹簧，允许 latest-wins 重定向，退出可以立即抢占。
+同一计划进一步把 default / guitar / angry 收敛到一个 latest-wins 宿主入口，旧引擎释放共享参数后
+自动启动 pending target。Windows dev 已确认直接跨模式切换动作连贯、鼠标与 physics 可正常归还，
+任务 8 据此完成；真实 `CharacterStateUpdate` 接线仍保留给合并阶段。
+定向测试与 Windows dev 均确认 `annoyed → impatient → furious` 连贯，任务 7 至此完成。
 
 ## Acceptance
 

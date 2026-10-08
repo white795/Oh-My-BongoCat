@@ -8,19 +8,23 @@ import ts from 'typescript'
 import type { AngryAnimationIntent } from './angryAnimation.ts'
 import type { GuitarMotifId } from './guitarMotifs.ts'
 import type { GuitarPerformanceIntent, GuitarPerformanceTemplateId } from './guitarPerformance.ts'
+import type { MikuCatEnteredMode, MikuCatPresentationMode } from './mikuCatPresentationConsumer.ts'
 
 import { ANGRY_ANIMATION, AngryAnimation } from './angryAnimation.ts'
+import { COMPLETION_ANIMATION, CompletionAnimation } from './completionAnimation.ts'
 import { GuitarHandAnimation } from './guitarHandAnimation.ts'
 import { IMMERSED_DOUBLE_NOD_MOTIF_ID } from './guitarMotifs.ts'
-import { GUITAR_SOFT_CLOSE_TEMPLATE_ID } from './guitarPerformance.ts'
+import { GUITAR_PERFORMANCE, GUITAR_SOFT_CLOSE_TEMPLATE_ID } from './guitarPerformance.ts'
+import { MikuCatPresentationConsumer } from './mikuCatPresentationConsumer.ts'
 import { ModelMouseInput } from './modelMouseInput.ts'
-import { MIKUCAT_ANGRY_OWNED_PARAMETERS, MIKUCAT_GUITAR_OWNED_PARAMETERS, MIKUCAT_LEEK_HAND_CHANNELS, MIKUCAT_NORMAL_LEFT_HAND_CHANNELS, ModelParameterOwnership } from './modelParameterOwnership.ts'
+import { MIKUCAT_ANGRY_OWNED_PARAMETERS, MIKUCAT_COMPLETION_OWNED_PARAMETERS, MIKUCAT_GUITAR_OWNED_PARAMETERS, MIKUCAT_LEEK_HAND_CHANNELS, MIKUCAT_NORMAL_LEFT_HAND_CHANNELS, ModelParameterOwnership } from './modelParameterOwnership.ts'
 
 // Exercise the real host wrapper; only native IPC, asset loading and WebGL are replaced.
 function fixture() {
   const callbacks = new Set<(ticker: { deltaMS: number }) => void>()
   const parameters = new Map<string, number>()
   const parameterWrites: Array<[string, number, number]> = []
+  const expressionIndices: number[] = []
   const manifest = readFileSync(new URL('../../src-tauri/assets/models/mikucat/mikucat.model3.json', import.meta.url), 'utf8')
   const source = readFileSync(new URL('./live2d.ts', import.meta.url), 'utf8')
   const { outputText } = ts.transpileModule(source, { compilerOptions: {
@@ -40,7 +44,10 @@ function fixture() {
       return JSON.parse(manifest).FileReferences.Expressions
     }
 
-    setExpression() { }
+    setExpression({ index }: { index: number }) {
+      expressionIndices.push(index)
+    }
+
     setParameterValueById(id: string, value: number, weight = 1) {
       parameterWrites.push([id, value, weight])
       if (weight > 0) parameters.set(id, value)
@@ -52,6 +59,7 @@ function fixture() {
       const animationParameters = [
         ...MIKUCAT_GUITAR_OWNED_PARAMETERS,
         ...MIKUCAT_ANGRY_OWNED_PARAMETERS,
+        ...MIKUCAT_COMPLETION_OWNED_PARAMETERS,
       ] as readonly string[]
       if (animationParameters.includes(id)) return { min: -30, max: 30 }
       return null
@@ -87,6 +95,7 @@ function fixture() {
     },
     '@/locales': { i18n: { global: { t: (key: string) => key } } },
     './angryAnimation': { AngryAnimation },
+    './completionAnimation': { CompletionAnimation },
     './guitarHandAnimation': { GuitarHandAnimation },
     './modelMouseInput': { ModelMouseInput },
     './modelParameterOwnership': {
@@ -114,11 +123,18 @@ function fixture() {
     setGuitarPerformanceIntent: (intent: GuitarPerformanceIntent) => boolean
     setGuitarPerformanceTemplateOverride: (templateId?: GuitarPerformanceTemplateId) => boolean
     setGuitarMotifPreview: (motifId?: GuitarMotifId) => boolean
+    playCompletionAnimation: () => boolean
+    applyAgentPresentation: (mode: MikuCatPresentationMode) => boolean
+    releaseAgentPresentation: () => boolean
+    onAnimationModeChange: (listener: (mode: MikuCatEnteredMode) => void) => () => void
     destroy: () => void
+    readonly enteredAnimationMode: MikuCatEnteredMode
     readonly isGuitarPerforming: boolean
     readonly isAngryAnimating: boolean
+    readonly isCompletionAnimating: boolean
     readonly guitarPerformanceSnapshot: GuitarHandAnimation['snapshot']
     readonly angryAnimationSnapshot: AngryAnimation['snapshot']
+    readonly completionAnimationSnapshot: CompletionAnimation['snapshot']
     mouseInput: ModelMouseInput
   }
   function advance(ms: number) {
@@ -126,7 +142,7 @@ function fixture() {
       for (const callback of [...callbacks]) callback({ deltaMS: Math.min(10, ms - elapsed) })
     }
   }
-  return { host, advance, callbacks, parameters, parameterWrites }
+  return { host, advance, callbacks, parameters, parameterWrites, expressionIndices }
 }
 
 it('runs the restrained angry animation only for the built-in MikuCat expression', async () => {
@@ -178,6 +194,29 @@ it('forwards the selected angry intensity and its leek-hand gesture into the nex
   assert.equal(parameters.get(MIKUCAT_NORMAL_LEFT_HAND_CHANNELS.y), host.angryAnimationSnapshot.normalLeftHand.y)
 })
 
+it('adopts a live angry intensity at the safe loop boundary without adding another ticker', async () => {
+  const { host, advance, callbacks } = fixture()
+  await host.load('model', 'mikucat')
+
+  host.setExpression(2)
+  advance(ANGRY_ANIMATION.enterMs)
+  assert.equal(callbacks.size, 1)
+
+  assert.equal(host.setAngryAnimationIntent({ intensity: 'impatient' }), true)
+  advance(ANGRY_ANIMATION.annoyedLoopMs - 10)
+  assert.equal(host.angryAnimationSnapshot.intensity, 'annoyed')
+  assert.equal(host.angryAnimationSnapshot.transitioningTo, undefined)
+
+  advance(10)
+  assert.equal(host.angryAnimationSnapshot.transitioningTo, 'impatient')
+  assert.equal(callbacks.size, 1)
+
+  advance(ANGRY_ANIMATION.intensityTransitionMs)
+  assert.equal(host.angryAnimationSnapshot.intensity, 'impatient')
+  assert.equal(host.angryAnimationSnapshot.transitioningTo, undefined)
+  assert.equal(callbacks.size, 1)
+})
+
 it('forwards the grounded furious flurry into the same angry player without adding another ticker', async () => {
   const { host, advance, callbacks, parameters } = fixture()
   await host.load('model', 'mikucat')
@@ -210,6 +249,296 @@ it('forwards a presentation profile into the existing guitar player', async () =
   assert.equal(callbacks.size, 1)
   assert.equal(host.guitarPerformanceSnapshot.profile, 'drive')
   assert.equal(host.guitarPerformanceSnapshot.phase, 'playing')
+})
+
+it('starts angry automatically after guitar releases the shared parameters', async () => {
+  const { host, advance, callbacks } = fixture()
+  await host.load('model', 'mikucat')
+  host.setExpression(3)
+  advance(GUITAR_PERFORMANCE.enterMs)
+
+  host.setExpression(2)
+
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'leaving')
+  assert.equal(host.angryAnimationSnapshot.phase, 'idle')
+  assert.equal(callbacks.size, 1)
+
+  advance(GUITAR_PERFORMANCE.exitMs)
+
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'idle')
+  assert.equal(host.angryAnimationSnapshot.phase, 'entering')
+  assert.equal(callbacks.size, 1)
+
+  advance(ANGRY_ANIMATION.enterMs)
+
+  assert.equal(host.angryAnimationSnapshot.phase, 'playing')
+  assert.equal(callbacks.size, 1)
+})
+
+it('starts guitar automatically after angry releases the shared parameters', async () => {
+  const { host, advance, callbacks } = fixture()
+  await host.load('model', 'mikucat')
+  host.setExpression(2)
+  advance(ANGRY_ANIMATION.enterMs)
+
+  host.setExpression(3)
+
+  assert.equal(host.angryAnimationSnapshot.phase, 'leaving')
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'idle')
+  assert.equal(callbacks.size, 1)
+
+  advance(ANGRY_ANIMATION.exitMs)
+
+  assert.equal(host.angryAnimationSnapshot.phase, 'idle')
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'entering')
+  assert.equal(callbacks.size, 1)
+
+  advance(GUITAR_PERFORMANCE.enterMs)
+
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'playing')
+  assert.equal(callbacks.size, 1)
+})
+
+it('keeps only the latest target when a cross-mode handoff reverses or returns to default', async () => {
+  const { host, advance, callbacks } = fixture()
+  await host.load('model', 'mikucat')
+  host.setExpression(3)
+  advance(GUITAR_PERFORMANCE.enterMs)
+
+  host.setExpression(2)
+  advance(80)
+  const leavingPose = host.guitarPerformanceSnapshot.strummingGesture
+  host.setExpression(3)
+
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'entering')
+  assert.deepEqual(host.guitarPerformanceSnapshot.strummingGesture, leavingPose)
+  assert.equal(host.angryAnimationSnapshot.phase, 'idle')
+  assert.equal(callbacks.size, 1)
+
+  advance(GUITAR_PERFORMANCE.enterMs)
+  host.setExpression(2)
+  advance(80)
+  host.setExpression(0)
+  advance(GUITAR_PERFORMANCE.exitMs)
+
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'idle')
+  assert.equal(host.angryAnimationSnapshot.phase, 'idle')
+  assert.equal(callbacks.size, 0)
+  assert.equal(host.mouseInput.accepts(host.mouseInput.begin()), true)
+})
+
+it('cancels an angry exit from its current pose when the latest target returns to angry', async () => {
+  const { host, advance, callbacks } = fixture()
+  await host.load('model', 'mikucat')
+  host.setExpression(2)
+  advance(ANGRY_ANIMATION.enterMs + 900)
+
+  host.setExpression(3)
+  advance(80)
+  const leavingHead = host.angryAnimationSnapshot.head
+  const leavingHand = host.angryAnimationSnapshot.leekHand
+  host.setExpression(2)
+
+  assert.equal(host.angryAnimationSnapshot.phase, 'entering')
+  assert.deepEqual(host.angryAnimationSnapshot.head, leavingHead)
+  assert.deepEqual(host.angryAnimationSnapshot.leekHand, leavingHand)
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'idle')
+  assert.equal(callbacks.size, 1)
+
+  advance(ANGRY_ANIMATION.enterMs)
+
+  assert.equal(host.angryAnimationSnapshot.phase, 'playing')
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'idle')
+  assert.equal(callbacks.size, 1)
+})
+
+it('plays dot-eyes once from relaxed and restores the default expression and mouse', async () => {
+  const { host, advance, callbacks, expressionIndices } = fixture()
+  await host.load('model', 'mikucat')
+  host.setExpression(0)
+
+  assert.equal(host.playCompletionAnimation(), true)
+  assert.equal(host.isCompletionAnimating, true)
+  assert.equal(host.completionAnimationSnapshot.phase, 'playing')
+  assert.equal(expressionIndices.at(-1), 1)
+  assert.equal(callbacks.size, 1)
+
+  advance(COMPLETION_ANIMATION.actionMs)
+
+  assert.equal(host.completionAnimationSnapshot.phase, 'leaving')
+  assert.equal(expressionIndices.at(-1), 0)
+
+  advance(COMPLETION_ANIMATION.returnMs)
+
+  assert.equal(host.isCompletionAnimating, false)
+  assert.equal(callbacks.size, 0)
+  assert.equal(host.mouseInput.accepts(host.mouseInput.begin()), true)
+})
+
+it('waits for guitar to release before starting the completion gesture', async () => {
+  const { host, advance, callbacks, expressionIndices } = fixture()
+  await host.load('model', 'mikucat')
+  host.setExpression(3)
+  advance(GUITAR_PERFORMANCE.enterMs)
+
+  assert.equal(host.playCompletionAnimation(), true)
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'leaving')
+  assert.equal(host.completionAnimationSnapshot.phase, 'idle')
+  assert.equal(expressionIndices.at(-1), 3)
+
+  advance(GUITAR_PERFORMANCE.exitMs)
+
+  assert.equal(host.guitarPerformanceSnapshot.phase, 'idle')
+  assert.equal(host.completionAnimationSnapshot.phase, 'playing')
+  assert.equal(expressionIndices.at(-1), 1)
+  assert.equal(callbacks.size, 1)
+})
+
+it('lets new angry work preempt completion without a late default expression', async () => {
+  const { host, advance, callbacks, expressionIndices } = fixture()
+  await host.load('model', 'mikucat')
+  host.setExpression(0)
+  host.playCompletionAnimation()
+  advance(COMPLETION_ANIMATION.popAtMs)
+
+  host.setExpression(2)
+
+  assert.equal(host.completionAnimationSnapshot.phase, 'leaving')
+  assert.equal(host.angryAnimationSnapshot.phase, 'idle')
+  assert.equal(expressionIndices.at(-1), 2)
+
+  advance(COMPLETION_ANIMATION.preemptExitMs)
+
+  assert.equal(host.completionAnimationSnapshot.phase, 'idle')
+  assert.equal(host.angryAnimationSnapshot.phase, 'entering')
+  assert.equal(expressionIndices.at(-1), 2)
+  assert.equal(callbacks.size, 1)
+})
+
+it('finishes completion once when one delayed frame crosses both the action and return', async () => {
+  const { host, callbacks, expressionIndices } = fixture()
+  await host.load('model', 'mikucat')
+  host.setExpression(0)
+  host.playCompletionAnimation()
+
+  const [tick] = [...callbacks]
+
+  tick({ deltaMS: COMPLETION_ANIMATION.actionMs + COMPLETION_ANIMATION.returnMs + 1_000 })
+
+  assert.equal(host.completionAnimationSnapshot.phase, 'idle')
+  assert.equal(host.isCompletionAnimating, false)
+  assert.equal(expressionIndices.at(-1), 0)
+  assert.equal(callbacks.size, 0)
+})
+
+it('reports actual animation entry instead of the requested mode during handoff', async () => {
+  const { host, advance } = fixture()
+  const enteredModes: MikuCatEnteredMode[] = []
+  await host.load('model', 'mikucat')
+  const unsubscribe = host.onAnimationModeChange(mode => enteredModes.push(mode))
+
+  assert.equal(host.enteredAnimationMode, 'relaxed')
+  assert.equal(host.applyAgentPresentation('guitar'), true)
+  assert.equal(host.enteredAnimationMode, 'guitar')
+
+  assert.equal(host.applyAgentPresentation('angry'), true)
+  assert.equal(host.enteredAnimationMode, 'guitar')
+  assert.deepEqual(enteredModes, ['guitar'])
+
+  advance(GUITAR_PERFORMANCE.exitMs)
+
+  assert.equal(host.enteredAnimationMode, 'angry')
+  assert.deepEqual(enteredModes, ['guitar', 'angry'])
+
+  assert.equal(host.releaseAgentPresentation(), true)
+  assert.equal(host.enteredAnimationMode, 'angry')
+  advance(ANGRY_ANIMATION.exitMs)
+
+  assert.equal(host.enteredAnimationMode, 'relaxed')
+  assert.deepEqual(enteredModes, ['guitar', 'angry', 'relaxed'])
+
+  unsubscribe()
+})
+
+it('reports completion as a transient entered mode until it returns to relaxed', async () => {
+  const { host, advance } = fixture()
+  const enteredModes: MikuCatEnteredMode[] = []
+  await host.load('model', 'mikucat')
+  host.onAnimationModeChange(mode => enteredModes.push(mode))
+
+  assert.equal(host.applyAgentPresentation('relaxed'), true)
+  assert.equal(host.playCompletionAnimation(), true)
+  assert.equal(host.enteredAnimationMode, 'completion')
+
+  advance(COMPLETION_ANIMATION.actionMs + COMPLETION_ANIMATION.returnMs)
+
+  assert.equal(host.enteredAnimationMode, 'relaxed')
+  assert.deepEqual(enteredModes, ['completion', 'relaxed'])
+})
+
+it('accepts the structural state port and aligns effects with real animation entry', async () => {
+  let now = 20_000
+  const { host, advance } = fixture()
+  await host.load('model', 'mikucat')
+  const consumer = new MikuCatPresentationConsumer(host, () => now, () => 0)
+
+  consumer.apply({
+    snapshot: {
+      presentation: { owner: 'agent', mode: 'guitar', generation: 20 },
+      child: {
+        mode: 'guitar',
+        snapshot: {
+          lifecycle: 'active',
+          parentGeneration: 20,
+          revision: 1,
+          interaction: 'engaged',
+          activity: 0.25,
+          releasing: false,
+        },
+      },
+    },
+    cues: [{
+      source: 'guitar',
+      cue: {
+        kind: 'press',
+        sequence: 1,
+        parentGeneration: 20,
+        activity: 0.25,
+        burst: 0.2,
+      },
+    }],
+  })
+
+  assert.equal(host.enteredAnimationMode, 'guitar')
+  assert.equal(consumer.guitarNotes.length, 1)
+
+  now += 100
+  consumer.apply({
+    snapshot: {
+      presentation: { owner: 'agent', mode: 'angry', generation: 21 },
+      child: {
+        mode: 'angry',
+        snapshot: {
+          lifecycle: 'active',
+          parentGeneration: 21,
+          revision: 1,
+          intensity: 'annoyed',
+        },
+      },
+    },
+    cues: [],
+  })
+
+  assert.equal(host.enteredAnimationMode, 'guitar')
+  assert.equal(consumer.guitarNotes.length, 0)
+  assert.equal(consumer.angryEffects.length, 0)
+
+  advance(GUITAR_PERFORMANCE.exitMs)
+
+  assert.equal(host.enteredAnimationMode, 'angry')
+  assert.deepEqual(consumer.angryEffects.map(effect => effect.variant), ['stress-arc'])
+
+  consumer.dispose()
 })
 
 it('forwards the development template override without restarting the player', async () => {

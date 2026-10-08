@@ -80,3 +80,11 @@ ESLint 和 `git diff --check` 通过；Vite 生产构建通过，仅保留既有
 随后 `sharp / flat` 测试先因基础池缺少两个变体按预期失败；实现手绘组合 SVG 后，特效目标测试、
 全量 12 个 utils 测试文件、TypeScript、定向 ESLint 与 `git diff --check` 通过。尚未接入真实状态
 总线；新符号等待 Windows dev 观察。
+
+Plan 028 后续已经建立 `MikuCatPresentationConsumer`：正式 guitar cue 可以在动画实际入场后直接
+交给本计划的 `GuitarEffectEngine`，跨 generation 切换会立即清空旧实例，相关行为测试已通过。
+这只完成了消费者核心，不改变任务 8 状态；页面仍运行 `GuitarNoteEffect` POC 与旧休止计时器，必须
+等状态机分支合入目标工作树后再一次性替换，并执行真实输入与 Windows dev 联合验收。
+
+统一消费者现进一步拥有单个最早 effect deadline 和不可变快照通知，吉他实例 ID 也在引擎生命周期
+内单调递增。最终页面接线可直接绑定该快照并删除所有逐音符 timer；本计划不再新增中间调度层。

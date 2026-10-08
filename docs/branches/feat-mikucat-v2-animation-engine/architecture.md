@@ -319,6 +319,24 @@ Plan 022 特效机消费，未来若要让 `ACCENT` 改变乐谱，必须另立�
 旧 `GuitarNoteEffect` 仅作为维持页面预览的临时 POC 适配器保留，不能继续扩展输入规则，并在最终
 integration plan 中随页面旧计时器一起删除。
 
+顶层扇出边界现由 `MikuCatPresentationConsumer` 固定。它声明 `CharacterStateUpdate` 的结构子集，
+因此状态机分支的真实更新可以直接传入，但动画分支不需要导入或复制 reducer、输入窗口、等待阈值、
+优先级和 deadline scheduler。消费者负责 durable intent 映射、generation/revision 淘汰、cue 分发与
+完成边沿去重；吉他和生气特效机仍分别拥有自己的 sequence、TTL、容量与视觉实例。
+
+目标 presentation 与实际动画入场是两个不同事实。`Live2d` 只在目标引擎真正取得参数所有权并启动
+后报告 `guitar / angry / completion`，并在全部引擎释放后报告 `relaxed`。消费者在新 generation
+到达时立即清除旧模式特效，但把目标模式 cue 排队到对应实际入场事件；这避免旧效果穿越交接，也
+避免目标模型尚未出现时先显示音符或怒气特效。同 generation 的 durable 更新只更新动画 intent，
+不得重启 presentation。旧 `GuitarNoteEffect` 与页面静默计时器在最终 integration plan 前仍只是
+预览兼容层，不能接入或扩展这条正式边界。
+
+消费者通过可选 `MikuCatEffectRuntime` 向 UI 发布两套特效的统一不可变快照，并只调度二者最早的
+一个 deadline。deadline 到达后由消费者同时推进引擎、发布变化并重新计算下一时间；模式换代、
+退出和 dispose 必须取消旧 timer。页面不得重新建立逐音符 timer 或怒气 sustain timer。同模式的
+新 generation 由对应引擎原子替换旧 generation，不先用新 generation deactivate；视觉实例 ID 在
+引擎生命周期内保持单调，确保 Vue key 在 generation 边界不会错误复用 CSS 动画节点。
+
 ## Compatibility and Delivery
 
 - 只对明确识别的内置 MikuCat 启用 V2 动画能力；其他内置模型与自定义模型保持现有行为；

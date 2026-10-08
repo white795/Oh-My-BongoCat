@@ -196,6 +196,92 @@ describe('MikuCat angry animation', () => {
     ) < 0.003)
   })
 
+  it('adopts the latest angry intensity only after the current loop closes', () => {
+    const animation = new AngryAnimation(() => {})
+    animation.start()
+    advance(animation, ANGRY_ANIMATION.enterMs)
+
+    animation.setIntent({ intensity: 'impatient' })
+    advance(animation, ANGRY_ANIMATION.annoyedLoopMs - 100)
+
+    assert.equal(animation.snapshot.phase, 'playing')
+    assert.equal(animation.snapshot.intensity, 'annoyed')
+    assert.equal(animation.snapshot.transitioningTo, undefined)
+
+    animation.setIntent({ intensity: 'furious' })
+    advance(animation, 99.9)
+    const beforeBoundary = animation.snapshot
+
+    animation.update(0.2)
+    const afterBoundary = animation.snapshot
+
+    assert.equal(afterBoundary.phase, 'playing')
+    assert.equal(afterBoundary.intensity, 'annoyed')
+    assert.equal(afterBoundary.transitioningTo, 'furious')
+    for (const name of ['head', 'body', 'leftEar', 'rightEar', 'leekHand', 'normalLeftHand'] as const) {
+      assert.ok(
+        Math.hypot(
+          afterBoundary[name].x - beforeBoundary[name].x,
+          afterBoundary[name].y - beforeBoundary[name].y,
+        ) < 0.05,
+        `${name} should remain continuous when the intensity transition starts`,
+      )
+    }
+
+    advance(animation, ANGRY_ANIMATION.intensityTransitionMs)
+
+    assert.equal(animation.snapshot.phase, 'playing')
+    assert.equal(animation.snapshot.intensity, 'furious')
+    assert.equal(animation.snapshot.transitioningTo, undefined)
+    assert.deepEqual(animation.snapshot.requestedIntent, { intensity: 'furious' })
+  })
+
+  it('retargets an in-flight intensity blend without resetting the current pose', () => {
+    const animation = new AngryAnimation(() => {})
+    animation.start()
+    advance(animation, ANGRY_ANIMATION.enterMs)
+    animation.setIntent({ intensity: 'impatient' })
+    advance(animation, ANGRY_ANIMATION.annoyedLoopMs + 120)
+
+    assert.equal(animation.snapshot.transitioningTo, 'impatient')
+    const beforeRetarget = animation.snapshot
+
+    animation.setIntent({ intensity: 'furious' })
+    const afterRetarget = animation.snapshot
+
+    assert.deepEqual(afterRetarget.head, beforeRetarget.head)
+    assert.deepEqual(afterRetarget.body, beforeRetarget.body)
+    assert.deepEqual(afterRetarget.leekHand, beforeRetarget.leekHand)
+    assert.equal(afterRetarget.transitioningTo, 'furious')
+
+    advance(animation, ANGRY_ANIMATION.intensityTransitionMs)
+
+    assert.equal(animation.snapshot.intensity, 'furious')
+    assert.equal(animation.snapshot.transitioningTo, undefined)
+  })
+
+  it('lets an exit preempt an in-flight intensity transition', () => {
+    const animation = new AngryAnimation(() => {})
+    animation.start()
+    advance(animation, ANGRY_ANIMATION.enterMs)
+    animation.setIntent({ intensity: 'impatient' })
+    advance(animation, ANGRY_ANIMATION.annoyedLoopMs + 100)
+
+    assert.equal(animation.snapshot.transitioningTo, 'impatient')
+    const switchingPose = animation.snapshot
+
+    assert.equal(animation.stop({ x: 6, y: -4 }), true)
+    assert.equal(animation.snapshot.phase, 'leaving')
+    assert.equal(animation.snapshot.transitioningTo, undefined)
+    assert.deepEqual(animation.snapshot.head, switchingPose.head)
+    assert.deepEqual(animation.snapshot.leekHand, switchingPose.leekHand)
+
+    advance(animation, ANGRY_ANIMATION.exitMs)
+
+    assert.equal(animation.snapshot.phase, 'idle')
+    assert.deepEqual(animation.snapshot.head, { x: 0, y: 0 })
+  })
+
   it('leaves from the current pose and returns every authored pose channel to neutral', () => {
     const animation = new AngryAnimation(() => {})
     animation.start({ x: 9, y: -6 })

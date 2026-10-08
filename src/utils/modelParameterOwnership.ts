@@ -101,6 +101,23 @@ export const MIKUCAT_ANGRY_OWNED_PARAMETERS = [
   ...MIKUCAT_MOUSE_CONTROL_PARAMETERS,
 ] as const
 
+export const MIKUCAT_COMPLETION_POSE_PARAMETERS = [
+  MIKUCAT_V2_CHANNELS.head.x,
+  MIKUCAT_V2_CHANNELS.head.y,
+  MIKUCAT_V2_CHANNELS.body.x,
+  MIKUCAT_V2_CHANNELS.body.y,
+  MIKUCAT_V2_CHANNELS.leftEar.x,
+  MIKUCAT_V2_CHANNELS.leftEar.y,
+  MIKUCAT_V2_CHANNELS.rightEar.x,
+  MIKUCAT_V2_CHANNELS.rightEar.y,
+] as const
+
+export const MIKUCAT_COMPLETION_OWNED_PARAMETERS = [
+  ...MIKUCAT_COMPLETION_POSE_PARAMETERS,
+  ...Object.values(MIKUCAT_V2_HAIR_CHANNELS),
+  ...MIKUCAT_MOUSE_CONTROL_PARAMETERS,
+] as const
+
 const clamp = (value: number, range: ModelParameterRange) => Math.max(range.min, Math.min(range.max, value))
 
 /**

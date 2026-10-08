@@ -36,6 +36,7 @@ interface AngryFrameWithVelocity extends AngryFrame {
 export const ANGRY_ANIMATION = {
   enterMs: 420,
   exitMs: 320,
+  intensityTransitionMs: 420,
   annoyedLoopMs: 4600,
   impatientLoopMs: 4000,
   furiousLoopMs: 5000,
@@ -322,6 +323,7 @@ export class AngryAnimation {
   private transitionFrom = zeroFrame()
   private transitionTo = zeroFrame()
   private transitionElapsed = 0
+  private transitioningTo?: AngryAnimationIntensity
   private loopElapsed = 0
   private readonly hairMotion = new MikuCatHairMotion()
 
@@ -335,6 +337,7 @@ export class AngryAnimation {
     return {
       phase: this.phase,
       intensity: this.intensity,
+      transitioningTo: this.transitioningTo,
       requestedIntent: { ...this.requestedIntent },
       head: clonePose(this.pose.head),
       headVelocity: clonePose(this.pose.headVelocity),
@@ -350,6 +353,9 @@ export class AngryAnimation {
 
   public setIntent(intent: AngryAnimationIntent) {
     this.requestedIntent = { intensity: intent.intensity }
+    if (this.transitioningTo && this.transitioningTo !== intent.intensity) {
+      this.beginIntensityTransition(intent.intensity)
+    }
     return true
   }
 
@@ -362,6 +368,7 @@ export class AngryAnimation {
       this.hairMotion.reset()
     }
     this.intensity = this.requestedIntent.intensity
+    this.transitioningTo = undefined
     this.transitionFrom = this.pose
     this.transitionTo = sampleMotion(this.intensity, 0)
     this.transitionElapsed = 0
@@ -377,6 +384,7 @@ export class AngryAnimation {
     this.transitionFrom = this.pose
     this.transitionTo = withHead(zeroFrame(), targetHead)
     this.transitionElapsed = 0
+    this.transitioningTo = undefined
     this.phase = 'leaving'
     return true
   }
@@ -387,6 +395,7 @@ export class AngryAnimation {
     this.transitionFrom = zeroFrame()
     this.transitionTo = zeroFrame()
     this.transitionElapsed = 0
+    this.transitioningTo = undefined
     this.loopElapsed = 0
     this.hairMotion.reset()
   }
@@ -409,9 +418,7 @@ export class AngryAnimation {
         this.pose = sampleMotion(this.intensity, 0)
       }
     } else if (this.phase === 'playing') {
-      const { durationMs } = motionFor(this.intensity)
-      this.loopElapsed = (this.loopElapsed + elapsed) % durationMs
-      this.pose = sampleMotion(this.intensity, this.loopElapsed)
+      this.updatePlaying(elapsed)
     } else if (this.phase === 'leaving') {
       this.transitionElapsed = Math.min(ANGRY_ANIMATION.exitMs, this.transitionElapsed + elapsed)
       this.pose = transitionFrame(
@@ -431,6 +438,62 @@ export class AngryAnimation {
       this.hairMotion.update(elapsed, this.pose.head, this.pose.headVelocity)
     }
     this.writePose()
+  }
+
+  private updatePlaying(elapsedMs: number) {
+    if (this.transitioningTo) {
+      this.advanceIntensityTransition(elapsedMs)
+      return
+    }
+
+    const { durationMs } = motionFor(this.intensity)
+    const remainingInLoop = durationMs - this.loopElapsed
+
+    if (
+      this.requestedIntent.intensity !== this.intensity
+      && elapsedMs >= remainingInLoop
+    ) {
+      const overflowMs = elapsedMs - remainingInLoop
+
+      this.loopElapsed = 0
+      this.pose = sampleMotion(this.intensity, 0)
+      this.beginIntensityTransition(this.requestedIntent.intensity)
+      if (overflowMs > 0) this.advanceIntensityTransition(overflowMs)
+      return
+    }
+
+    this.loopElapsed = (this.loopElapsed + elapsedMs) % durationMs
+    this.pose = sampleMotion(this.intensity, this.loopElapsed)
+  }
+
+  private beginIntensityTransition(target: AngryAnimationIntensity) {
+    this.transitioningTo = target
+    this.transitionFrom = this.pose
+    this.transitionTo = sampleMotion(target, 0)
+    this.transitionElapsed = 0
+  }
+
+  private advanceIntensityTransition(elapsedMs: number) {
+    const target = this.transitioningTo
+    if (!target) return
+
+    this.transitionElapsed = Math.min(
+      ANGRY_ANIMATION.intensityTransitionMs,
+      this.transitionElapsed + elapsedMs,
+    )
+    this.pose = transitionFrame(
+      this.transitionFrom,
+      this.transitionTo,
+      this.transitionElapsed,
+      ANGRY_ANIMATION.intensityTransitionMs,
+    )
+
+    if (this.transitionElapsed >= ANGRY_ANIMATION.intensityTransitionMs) {
+      this.intensity = target
+      this.transitioningTo = undefined
+      this.loopElapsed = 0
+      this.pose = sampleMotion(this.intensity, 0)
+    }
   }
 
   private writePose() {
