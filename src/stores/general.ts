@@ -13,6 +13,7 @@ export interface GeneralStore {
     taskbarVisible: boolean
     trayVisible: boolean
     codexAmbientEnabled: boolean
+    agentModelControlEnabled: boolean
   }
   appearance: {
     theme: Theme
@@ -44,6 +45,7 @@ export const useGeneralStore = defineStore('general', () => {
     taskbarVisible: false,
     trayVisible: true,
     codexAmbientEnabled: false,
+    agentModelControlEnabled: false,
   })
 
   const appearance = reactive<GeneralStore['appearance']>({

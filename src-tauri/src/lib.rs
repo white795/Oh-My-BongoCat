@@ -2,16 +2,16 @@ mod core;
 mod utils;
 
 use core::{
-    ambient::{DispatchRequest, parse_dispatch_request},
+    ambient::{parse_dispatch_request, DispatchRequest},
     ambient_runtime::AmbientRuntime,
     device::start_device_listening,
     gamepad::{start_gamepad_listing, stop_gamepad_listing},
     prevent_default, setup, statistics,
 };
-use tauri::{Manager, WindowEvent, generate_handler};
+use tauri::{generate_handler, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_custom_window::{
-    MAIN_WINDOW_LABEL, PREFERENCE_WINDOW_LABEL, show_preference_window,
+    show_preference_window, MAIN_WINDOW_LABEL, PREFERENCE_WINDOW_LABEL,
 };
 use utils::fs_extra::copy_dir;
 
@@ -19,7 +19,14 @@ use utils::fs_extra::copy_dir;
 fn set_codex_ambient_enabled(app_handle: tauri::AppHandle, enabled: bool) {
     app_handle
         .state::<AmbientRuntime>()
-        .set_enabled(&app_handle, enabled);
+        .set_indicator_enabled(&app_handle, enabled);
+}
+
+#[tauri::command]
+fn set_agent_model_control_enabled(app_handle: tauri::AppHandle, enabled: bool) {
+    app_handle
+        .state::<AmbientRuntime>()
+        .set_presentation_enabled(&app_handle, enabled);
 }
 
 #[tauri::command]
@@ -56,6 +63,7 @@ pub fn run() {
             complete_agent_ambient_alert,
             copy_dir,
             get_codex_ambient_snapshot,
+            set_agent_model_control_enabled,
             set_codex_ambient_enabled,
             start_device_listening,
             start_gamepad_listing,

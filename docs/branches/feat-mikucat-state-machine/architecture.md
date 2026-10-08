@@ -14,7 +14,7 @@ BongoCat 在本支线中从“输入事件驱动的桌宠，并附带彼此隔�
 
 1. 先把 MikuCat 作为独立、稳定的光标交互型 Live2D 模型接入原软件；
 2. 在模型、吉他动画和音符原型边界明确后，让明确声明能力的模型消费现有 Agent 状态，并把
-   角色状态机、动画机和特效机分层。
+   角色状态机与表现层（动画机、特效机）分层。
 
 两个阶段必须独立验收。第一阶段没有为了 Agent 动画修改 hook、bridge、ambient reducer 或现有
 氛围灯 renderer；第二阶段继续复用这条已验证链路，只新增主窗口消费者和角色表现归约。
@@ -86,7 +86,8 @@ Plan 016 仅对内置 MikuCat 的吉他表情接管鼠标参数：进入时头�
 监听、不改变统计与窗口操作、不修改用户的忽略鼠标设置。该步骤已由用户确认符合预期。
 
 Plan 017 的固定手部循环视觉验收未通过，由 Plan 018 替代。新动画机将手部片段与乐句数据
-放在 `guitarPerformance.ts`，由 `guitarHandAnimation.ts` 编排轻奏/常奏/强调/放松四种内部模式。
+放在 `guitarPerformance.ts`，由 `guitarHandAnimation.ts` 编排轻奏/常奏/强调/放松四种内部模式；
+这套实现是动画机的前身，迁移完成后由表现层支线接管。
 选句、节拍与力度只在句边界改变，动作承接当前参数位置和速度；不以每帧随机扰动代替动作设计。
 
 仍通过既有 Ticker 驱动 `ParamMouseX/Y`；用户追加的头身编排通过 `ParamAngleX/Y` 执行每个
@@ -106,54 +107,94 @@ Plan 019 在上述吉他激活边界内复用现有键盘 press edge，向主窗
 方向的局部 X/Y 坐标，只进入右上、右下、左下或近水平向右，明确排除左上第二象限。后续帧不再
 随机。十一种图形未来可替换为自有素材而不改变输入或 Live2D 动画机。该层不写模型参数，退出
 表情、切换模型和卸载时同时清理音符与休止计时器，不影响其他模型、输入统计、Rust 监听或
-Agent 数据流。
+Agent 数据流。该原型及其内部输入语义的拆分现已整体移交表现层支线，本支线不再演进它。
 
-## Guitar Mode State Machine / Presentation Engines Contract
+## Mode State Machines / Presentation Layer Contract
 
-吉他模式按“一个状态生产者、两个表现消费者”解耦。当前 Plan 019 音符实现是特效机的首个视觉
-原型，但其中暂时混有输入窗口、休止判断和动画 phase 门控；这些语义在正式结构中归状态机，不能
-继续由音符模块或页面维护。
+本支线按“状态生产归状态机，视觉实现归表现层”解耦。Plan 019 的音符实现是特效机的首个视觉
+原型，其中混有输入窗口、休止判断和动画 phase 门控；这些语义在正式结构中归状态机，视觉策略
+归表现层支线，不能继续由音符模块或页面维护。
 
-动画机与特效机消费同一次状态归约结果，但彼此独立。动画机即使没有输入也持续维护时间轴、姿态、
-速度和乐句；特效机维护音符及未来粒子、贴图、光晕等模型外实例。无输入显式表示为
-`AUTONOMOUS`，不是控制权空档。输入停止先经过平滑释放再回到自治演奏，已有特效按各自 TTL
-自然结束。
+完整产品层是“Agent 与设备活动两个上层输入源 -> 分层意图状态机 -> 表现层”。Agent 决定角色
+父模式和优先级，键盘/鼠标活动只能调节当前模式内部意图，不能与 Agent 竞争角色模式。原始光标
+坐标仍可作为动画机的连续目标，但是否允许鼠标接管由状态机决定；高频坐标不进入语义归约器。
+单调时间用于 deadline 归约，不构成第三个业务输入源。
+
+表现层内部如何分工、动画机与特效机是否并列消费同一份输出，由表现层支线自行决定。状态机
+只保证输出自足：消费者不需要回读状态机内部结构，也不需要自行判断静默时长或输入密度。无输入
+显式表示为 `AUTONOMOUS`，不是控制权空档；输入停止先经过平滑释放再回到自治演奏。
 
 ```text
-KeyboardPress timing + mode lifecycle
-        -> Guitar Mode State Machine
-           ├── durable interaction snapshot
-           └── transient performance cues
-                         │
-              ┌──────────┴──────────┐
-              ▼                     ▼
-      Animation Engine         Effect Engine
-       Live2D parameters     DOM / Canvas / Sprite
+Agent mode + generation ────────────┐
+Normalized device press ────────────┤
+Monotonic time ─────────────────────┤
+                                    ▼
+                       Active Mode State Machine
+                       ├── GUITAR: input interaction
+                       ├── ANGRY: waiting escalation
+                       └── durable snapshot + transient cues
+                                      │
+                                      ▼
+                        presentation layer（表现层支线）
+                     animation + effects, Live2D + DOM
 ```
 
 边界固定如下：
 
 - 状态机解释输入、时间和模式生命周期，只发送“持续状态 + 瞬时提示”，不写模型参数、不创建特效；
-- 动画机按拍点或乐句边界平滑落实意图，是头、身体、耳朵、右手和吉他参数的唯一写入者；
-- 特效机即时或延迟生成模型外视觉实例，负责颜色、轨迹、容量、TTL 和回收，不保存输入语义；
-- 同一个 snapshot / cue 分别交给两个消费者；任一消费者的延迟或清理不阻塞另一方，两者不互调；
+- 状态机 lifecycle 仅为 `INACTIVE | ACTIVE`；entering / playing / leaving 是动画机自己的播放 phase；
+- 活跃度为 `AUTONOMOUS | ENGAGED | GROOVE | DRIVE`，停止趋势由独立 `releasing` 标记表达，不把
+  `DECAY` 混入强度等级；
+- 状态机不定义 Live2D 参数、音符、粒子、颜色、轨迹、容量或 TTL 的任何写入者；
 - 持续状态采用最新值覆盖，瞬时提示使用 sequence、冷却或合并规则防止重复和无限积压；
 - 输入休止提示不等于动画停止，也不同于动画机内部名为 `rest` 的放松片段；
-- 未来“生气”等状态中，Expression、耳朵和身体动作归动画机，烟雾、火花和外部气场归特效机。
+- 未来“生气”等状态中，表情、耳朵、身体动作与烟雾、火花、外部气场如何分工由表现层决定。
+
+纯 `GuitarInteractionMachine` 已固定首版输入语义：3 秒持续窗口、600 ms burst、6 / 12 次进入
+GROOVE / DRIVE、较低退出阈值形成迟滞、400 ms 后进入 releasing、1 秒后只发一次 INPUT_REST，
+ACCENT 至少间隔 1.2 秒。快照携带父级 generation、revision、activity 与 burst；每个 cue 有独立
+sequence。退出 GUITAR 后旧 generation 的 press 或 deadline 均被拒绝。上述阈值是可集中调整的
+首版基线，不属于动画曲线或音符样式。
+
+纯 `AngryWaitingMachine` 只解释一段连续 `ANGRY` 生命周期与单调时间。进入时从 `ANNOYED` 开始，
+8 秒升级为 `IMPATIENT`，25 秒升级为 `FURIOUS`；每次真实升级只发送一个带 sequence 与父级
+generation 的 `ANGER_ESCALATED` cue。运行时只按 `nextDeadlineAt` 唤醒状态机，不能自行判断强度。
+同一 generation 的重复激活不重置等待时长；只要全局始终存在 waiting Session，即使具体 Session
+更换也视为同一段等待。退出后清空 deadline，重新进入使用新 generation 从头计时。漏唤醒并跨过
+多个阈值时直接收敛到当前最终强度，只发送一次最终升级提示，避免补播过期表现。当前 Session
+快照不携带 `waitingSince`，因此重启或延迟开启接管时从本地观察到 `ANGRY` 的时刻开始计时。
 
 吉他状态机之上还有父级角色状态机。父级只读取现有 `AmbientSnapshot.sessions` 和独立的 Agent
 接管开关，以 `WAITING > WORKING > RELAXED` 归约出 `ANGRY | GUITAR | RELAXED`；不得使用只代表
 最近更新 Session 的顶层 `snapshot.state`。父级模式不变时 generation 不变，重复 hook 不能重启
-动画。只有父级为 `GUITAR` 时才激活吉他子状态机；切出后旧 generation 的提示失效。
+动画。`done` 不成为稳定角色模式；当同一 `sessionId` 从 working / waiting 进入 done 且当前所有
+Session 均为 done 时，父级只发出一次 `ALL_SESSIONS_DONE` cue，供动画机播放“默认 -> 豆豆 ->
+默认”的一次性完成动画。重复 done、重连恢复、延迟接管和 SessionEnd / TTL 移除不重放该 cue。
+父级为 `GUITAR` 时只激活吉他子状态机，为 `ANGRY` 时只激活生气等待子状态机；进入 `RELAXED`
+或交还手动控制时两者均停用。切换模式后旧 generation 的输入、deadline 与提示全部失效。
+
+纯 `CharacterStateCoordinator` 负责连接父级与两个子状态机，并统一输出父级快照、当前唯一活跃的
+子快照、带来源的 cue 和该子状态机的 `nextDeadlineAt`。它只路由父级 transition、键盘 press 与
+deadline 唤醒，不调用动画机或特效机。提供可选的 `CharacterStateDeadlineRuntime` 时，连接器根据
+最新绝对 deadline 自持至多一个单次 timer；新 deadline 替换旧 timer，退出或销毁时取消，回调再由
+token 与 generation 校验，避免迟到工作复活已经退出的模式。timer 只负责按时唤醒，状态含义仍完全
+由两个子状态机决定，不存在持续轮询或第二份阈值。
 
 角色控制权单独表示为 `MANUAL | AGENT`。Agent 接管关闭时仍缓存最新 Ambient 快照，但不改变模型；
 开启时立即按当前快照接管，关闭时清理子状态与特效、恢复鼠标并交还默认手动态。手动 Expression
 和 Motion 的真正拦截位于主窗口中央入口，偏好页禁用仅用于提示。氛围灯显示与模型接管是两个
 独立开关，任一消费者开启时接收服务都必须继续维护 Session。
 
-具体交互状态、两类消费者契约、Plan 019 迁移范围和验收用例记录在
+具体子状态、表现层消费契约、Plan 019 迁移边界和验收用例记录在
 [Plan 020](plans/plan-020-guitar-mode-animation-contract.md)。该计划先构建父级角色归约与主窗口控制权，
-再向下构建吉他状态机和特效机；动画机支线接口就绪后接入第二个消费者。
+再向下构建吉他与生气等待状态机；动画机与特效机的实现和接线由表现层支线承接。
+
+当前开发职责按 worktree 隔离：`feat/mikucat-state-machine` 只负责父子状态机、控制权、语义时间与
+公共输出契约；`feat/mikucat-v2-animation-engine` 作为表现层支线，同时负责两个同级消费者——
+Live2D 动画机与模型外特效机——及其运行时接线。两侧只通过 Plan 020 的持续快照、瞬时提示和
+deadline 契约对接；代码层唯一入口是 `characterStateCoordinator.ts` 导出的 `CharacterStateUpdate`，
+表现层不得分别直连父级或任一子状态机。状态机 worktree 不继续拆分或改进特效机，也不修改动画机
+内部实现；当前暂停等待表现层完成，恢复后只做消费接线、回归验证和 merge 收尾。
 
 ## Stage 2 Boundary: Agent State Integration
 
@@ -171,8 +212,20 @@ Codex / Claude hooks
 
 只有显式声明 Agent 能力的内置 MikuCat 才能响应该状态；旧模型和自定义模型必须继续保持原行为。
 多 Session 到单角色固定按“任一 waiting -> angry；否则任一 working -> guitar；否则 relaxed”归约。
-`done` 不形成稳定角色模式，归入 relaxed；完成提示仍由既有边缘提示承担。当前已实现并测试纯
-TypeScript 角色归约器，尚未接通主窗口、持久化开关、Expression 映射或外部特效。
+`done` 不形成稳定角色模式，归入 relaxed；最后一个活跃 Session 完成时，角色归约器另行发出一次
+带 ambient sequence 和 presentation generation 的 `ALL_SESSIONS_DONE` cue。这个 cue 与既有屏幕
+边缘完成提示并行，专供角色动画机消费；当前已实现并测试语义边沿，但尚未接入豆豆动画。Rust
+runtime 已拆成 indicator / presentation 两个独立消费者：任一开启
+都维持同一个 reducer，snapshot 分别定向发布给氛围窗口和主窗口，只有 indicator 驱动边缘提示；
+两者全关才清空 Session；Windows dev 已确认该拆分无异常。持久化接管字段与 command 默认关闭。
+主窗口 Presentation Controller 已接入：监听建立后先恢复 snapshot，只有内置 MikuCat 可以获得
+Agent 所有权，接管期间在中央入口拒绝手动 Expression / Motion，换模或关闭开关立即交还控制。
+通用设置已增加默认关闭的“Agent 接管模型”开关。薄表现适配器按内置 model3 的语义文件路径映射
+`RELAXED / GUITAR / ANGRY`，只接受递增 generation；目标尚未加载时不消费 generation。
+`GUITAR` 和 `ANGRY` 锁定鼠标写入，`RELAXED` 或交还手动控制恢复默认表情和鼠标。该适配层只提供
+确定性的父级基线，不把豆豆设为稳定状态；父级只提供一次性完成 cue，其默认/豆豆/默认的时序和
+新工作到来时的抢占由独立动画机 worktree 承担。
+外部特效尚未接入。
 
 ## Compatibility and Release Boundary
 

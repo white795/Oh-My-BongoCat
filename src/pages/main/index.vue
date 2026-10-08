@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import type { UnlistenFn } from '@tauri-apps/api/event'
 import type { MotionInfo } from 'easy-live2d'
 
-import { convertFileSrc } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { PhysicalSize } from '@tauri-apps/api/dpi'
+import { listen } from '@tauri-apps/api/event'
 import { Menu, PredefinedMenuItem } from '@tauri-apps/api/menu'
 import { sep } from '@tauri-apps/api/path'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
@@ -12,6 +14,7 @@ import { round } from 'es-toolkit'
 import { nth } from 'es-toolkit/compat'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 
+import type { CharacterAmbientSnapshot, CharacterPresentationTransition } from '@/utils/characterPresentation'
 import type { GuitarNote } from '@/utils/guitarNoteEffect'
 
 import { useAppMenu } from '@/composables/useAppMenu'
@@ -19,11 +22,13 @@ import { useDevice } from '@/composables/useDevice'
 import { useGamepad } from '@/composables/useGamepad'
 import { useModel } from '@/composables/useModel'
 import { useTauriListen } from '@/composables/useTauriListen'
-import { LISTEN_KEY } from '@/constants'
+import { INVOKE_KEY, LISTEN_KEY } from '@/constants'
 import { hideWindow, setAlwaysOnTop, setTaskbarVisibility, showWindow } from '@/plugins/window'
 import { useCatStore } from '@/stores/cat'
 import { useGeneralStore } from '@/stores/general.ts'
 import { useModelStore } from '@/stores/model'
+import { CharacterPresentationAdapter } from '@/utils/characterPresentationAdapter'
+import { CharacterPresentationController } from '@/utils/characterPresentationController'
 import { GUITAR_NOTE_EFFECT, GuitarNoteEffect } from '@/utils/guitarNoteEffect'
 import { isImage } from '@/utils/is'
 import live2d from '@/utils/live2d'
@@ -43,14 +48,24 @@ const resizing = ref(false)
 const backgroundImagePath = ref<string>()
 const { stickActive } = useGamepad()
 const guitarNoteEffect = new GuitarNoteEffect()
+const presentationController = new CharacterPresentationController()
+const presentationAdapter = new CharacterPresentationAdapter(live2d)
 const guitarNotes = ref<readonly GuitarNote[]>([])
 const guitarNoteTimers = new Map<number, number>()
 let guitarRestTimer: number | undefined
+let presentationUnlisten: UnlistenFn | undefined
+let presentationReady = false
+let presentationDisposed = false
 const { startListening } = useDevice({ onKeyboardPress: handleGuitarKeyPress })
 
-onMounted(startListening)
+onMounted(() => {
+  startListening()
+  void startPresentationController()
+})
 
 onUnmounted(() => {
+  presentationDisposed = true
+  presentationUnlisten?.()
   clearGuitarNotes()
   handleDestroy()
 })
@@ -68,10 +83,14 @@ useEventListener('resize', () => {
 })
 
 watch(() => modelStore.currentModel, async (model) => {
+  applyPresentationTransition(presentationController.setModel(undefined))
+
   if (!model) return
 
   clearGuitarNotes()
   await handleLoad()
+
+  if (modelStore.currentModel?.id !== model.id) return
 
   const path = join(model.path, 'resources', 'background.png')
 
@@ -97,6 +116,7 @@ watch(() => modelStore.currentModel, async (model) => {
   }
 
   modelStore.modelReady = true
+  applyPresentationTransition(presentationController.setModel(model))
 }, { deep: true, immediate: true })
 
 watch([() => catStore.window.scale, modelSize], async ([scale, modelSize]) => {
@@ -136,19 +156,70 @@ watch(() => catStore.window.alwaysOnTop, setAlwaysOnTop, { immediate: true })
 
 watch(() => generalStore.app.taskbarVisible, setTaskbarVisibility, { immediate: true })
 
+watch(() => generalStore.app.agentModelControlEnabled, (enabled) => {
+  if (!presentationReady) return
+
+  applyPresentationTransition(presentationController.setAgentRequested(enabled))
+})
+
 watch(() => catStore.model.motionSound, live2d.setMotionSoundEnabled, { immediate: true })
 
 watch(() => catStore.model.maxFPS, live2d.setMaxFPS, { immediate: true })
 
 useTauriListen<MotionInfo>(LISTEN_KEY.START_MOTION, ({ payload }) => {
+  if (!presentationController.manualControlAllowed) return
+
   live2d.startMotion(payload)
 })
 
 useTauriListen<number>(LISTEN_KEY.SET_EXPRESSION, ({ payload }) => {
+  if (!presentationController.manualControlAllowed) return
+
   live2d.setExpression(payload)
 
   if (!live2d.isGuitarPerforming) clearGuitarNotes()
 })
+
+async function startPresentationController() {
+  const unlisten = await listen<CharacterAmbientSnapshot>(
+    LISTEN_KEY.CODEX_AMBIENT_SNAPSHOT,
+    ({ payload }) => restorePresentationSnapshot(payload),
+  ).catch(() => undefined)
+
+  if (!unlisten) return
+  if (presentationDisposed) {
+    unlisten()
+    return
+  }
+
+  presentationUnlisten = unlisten
+
+  const snapshot = await invoke<CharacterAmbientSnapshot>(
+    INVOKE_KEY.GET_CODEX_AMBIENT_SNAPSHOT,
+  ).catch(() => undefined)
+
+  if (snapshot) restorePresentationSnapshot(snapshot)
+}
+
+function restorePresentationSnapshot(snapshot: CharacterAmbientSnapshot) {
+  if (presentationDisposed) return
+
+  applyPresentationTransition(presentationController.applyAmbient(snapshot))
+  if (presentationReady) return
+
+  presentationReady = true
+  applyPresentationTransition(
+    presentationController.setAgentRequested(generalStore.app.agentModelControlEnabled),
+  )
+}
+
+function applyPresentationTransition(transition: CharacterPresentationTransition) {
+  if (!transition.changed || !presentationAdapter.apply(transition.current)) return
+
+  if (transition.current.owner === 'manual' || transition.current.mode !== 'guitar') {
+    clearGuitarNotes()
+  }
+}
 
 function syncGuitarNotes() {
   const notes = guitarNoteEffect.snapshot

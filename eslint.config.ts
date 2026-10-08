@@ -20,5 +20,8 @@ export default antfu({
       },
     ],
   },
-  ignores: ['**/*.toml'],
+  ignores: [
+    '**/*.toml',
+    'src-tauri/assets/models/**',
+  ],
 })

@@ -5,14 +5,15 @@
 
 use std::{
     sync::{
-        Mutex, MutexGuard,
         atomic::{AtomicBool, Ordering},
+        Mutex, MutexGuard,
     },
     thread,
     time::Duration,
 };
 
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime, WebviewWindow};
+use tauri_plugin_custom_window::MAIN_WINDOW_LABEL;
 
 use super::ambient::{
     AmbientAlertKind, AmbientEvent, AmbientReducer, AmbientSnapshot, AmbientStatus,
@@ -88,9 +89,37 @@ impl AmbientAlertCoordinator {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct AmbientConsumers {
+    indicator_enabled: bool,
+    presentation_enabled: bool,
+}
+
+impl AmbientConsumers {
+    fn set_indicator_enabled(&mut self, enabled: bool) {
+        self.indicator_enabled = enabled;
+    }
+
+    fn set_presentation_enabled(&mut self, enabled: bool) {
+        self.presentation_enabled = enabled;
+    }
+
+    fn indicator_enabled(&self) -> bool {
+        self.indicator_enabled
+    }
+
+    fn presentation_enabled(&self) -> bool {
+        self.presentation_enabled
+    }
+
+    fn receiving(&self) -> bool {
+        self.indicator_enabled || self.presentation_enabled
+    }
+}
+
 #[derive(Default)]
 pub struct AmbientRuntime {
-    enabled: AtomicBool,
+    consumers: Mutex<AmbientConsumers>,
     reducer: Mutex<AmbientReducer>,
     /// Serializes state changes with snapshot publication. Pipe clients are
     /// handled concurrently, so reducer locking alone is insufficient: an
@@ -102,20 +131,42 @@ pub struct AmbientRuntime {
 }
 
 impl AmbientRuntime {
-    pub fn set_enabled<R: Runtime>(&self, app: &AppHandle<R>, enabled: bool) {
+    pub fn set_indicator_enabled<R: Runtime>(&self, app: &AppHandle<R>, enabled: bool) {
         let _update = self.update_guard();
-        self.enabled.store(enabled, Ordering::SeqCst);
+        {
+            let mut consumers = self.consumers();
+            consumers.set_indicator_enabled(enabled);
+        }
+        let consumers = self.consumer_snapshot();
 
-        let snapshot = if enabled {
+        let snapshot = if consumers.receiving() {
             self.reducer().snapshot()
         } else {
             self.reducer().reset_to_idle()
         };
 
-        self.publish(app, &snapshot);
+        self.publish(app, &snapshot, consumers);
         if !enabled {
+            self.hide_indicator(app);
             self.cancel_alert(app);
         }
+    }
+
+    pub fn set_presentation_enabled<R: Runtime>(&self, app: &AppHandle<R>, enabled: bool) {
+        let _update = self.update_guard();
+        {
+            let mut consumers = self.consumers();
+            consumers.set_presentation_enabled(enabled);
+        }
+        let consumers = self.consumer_snapshot();
+
+        let snapshot = if consumers.receiving() {
+            self.reducer().snapshot()
+        } else {
+            self.reducer().reset_to_idle()
+        };
+
+        self.publish(app, &snapshot, consumers);
     }
 
     pub fn snapshot(&self) -> AmbientSnapshot {
@@ -124,8 +175,9 @@ impl AmbientRuntime {
 
     pub fn ingest<R: Runtime>(&self, app: &AppHandle<R>, event: AmbientEvent) {
         let _update = self.update_guard();
+        let consumers = self.consumer_snapshot();
 
-        if !self.enabled.load(Ordering::SeqCst) {
+        if !consumers.receiving() {
             return;
         }
 
@@ -134,9 +186,11 @@ impl AmbientRuntime {
             return;
         }
 
-        self.publish(app, &applied.snapshot);
-        if let Some(alert) = applied.alert {
-            self.request_alert(app, alert);
+        self.publish(app, &applied.snapshot, consumers);
+        if consumers.indicator_enabled() {
+            if let Some(alert) = applied.alert {
+                self.request_alert(app, alert);
+            }
         }
         self.ensure_sweeper(app);
     }
@@ -165,15 +219,26 @@ impl AmbientRuntime {
 
                 let runtime = app.state::<AmbientRuntime>();
                 let _update = runtime.update_guard();
-                if !runtime.enabled.load(Ordering::SeqCst) {
+                let consumers = runtime.consumer_snapshot();
+                if !consumers.receiving() {
                     continue;
                 }
 
                 if let Some(snapshot) = runtime.reducer().evict_stale(ttl) {
-                    runtime.publish(&app, &snapshot);
+                    runtime.publish(&app, &snapshot, consumers);
                 }
             }
         });
+    }
+
+    fn consumers(&self) -> MutexGuard<'_, AmbientConsumers> {
+        self.consumers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn consumer_snapshot(&self) -> AmbientConsumers {
+        *self.consumers()
     }
 
     fn reducer(&self) -> MutexGuard<'_, AmbientReducer> {
@@ -194,9 +259,20 @@ impl AmbientRuntime {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn publish<R: Runtime>(&self, app: &AppHandle<R>, snapshot: &AmbientSnapshot) {
-        let _ = app.emit_to(AMBIENT_WINDOW_LABEL, AMBIENT_SNAPSHOT_EVENT, snapshot);
-        self.sync_window_visibility(app, snapshot);
+    fn publish<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        snapshot: &AmbientSnapshot,
+        consumers: AmbientConsumers,
+    ) {
+        if consumers.indicator_enabled() {
+            let _ = app.emit_to(AMBIENT_WINDOW_LABEL, AMBIENT_SNAPSHOT_EVENT, snapshot);
+            self.sync_window_visibility(app, snapshot);
+        }
+
+        if consumers.presentation_enabled() {
+            let _ = app.emit_to(MAIN_WINDOW_LABEL, AMBIENT_SNAPSHOT_EVENT, snapshot);
+        }
     }
 
     fn sync_window_visibility<R: Runtime>(&self, app: &AppHandle<R>, snapshot: &AmbientSnapshot) {
@@ -243,6 +319,12 @@ impl AmbientRuntime {
         }
 
         if let Some(window) = app.get_webview_window(AMBIENT_ALERT_WINDOW_LABEL) {
+            let _ = window.hide();
+        }
+    }
+
+    fn hide_indicator<R: Runtime>(&self, app: &AppHandle<R>) {
+        if let Some(window) = app.get_webview_window(AMBIENT_WINDOW_LABEL) {
             let _ = window.hide();
         }
     }
@@ -302,6 +384,44 @@ fn configure_alert_window<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn either_consumer_keeps_receiving_enabled() {
+        let mut consumers = AmbientConsumers::default();
+
+        assert!(!consumers.receiving());
+
+        consumers.set_indicator_enabled(true);
+        assert!(consumers.receiving());
+        assert!(consumers.indicator_enabled());
+        assert!(!consumers.presentation_enabled());
+
+        consumers.set_presentation_enabled(true);
+        consumers.set_indicator_enabled(false);
+        assert!(consumers.receiving());
+        assert!(!consumers.indicator_enabled());
+        assert!(consumers.presentation_enabled());
+
+        consumers.set_presentation_enabled(false);
+        assert!(!consumers.receiving());
+    }
+
+    #[test]
+    fn consumer_flags_remain_independent() {
+        let mut consumers = AmbientConsumers::default();
+
+        consumers.set_presentation_enabled(true);
+        assert!(!consumers.indicator_enabled());
+        assert!(consumers.presentation_enabled());
+
+        consumers.set_indicator_enabled(true);
+        assert!(consumers.indicator_enabled());
+        assert!(consumers.presentation_enabled());
+
+        consumers.set_presentation_enabled(false);
+        assert!(consumers.indicator_enabled());
+        assert!(!consumers.presentation_enabled());
+    }
 
     #[test]
     fn waiting_preempts_done_while_done_never_overwrites_waiting() {

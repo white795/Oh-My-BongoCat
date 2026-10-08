@@ -4,8 +4,11 @@ import { describe, it } from 'node:test'
 
 import { CharacterPresentationReducer } from './characterPresentation.ts'
 
-function session(state: 'idle' | 'working' | 'waiting' | 'done') {
-  return { state }
+function session(
+  state: 'idle' | 'working' | 'waiting' | 'done',
+  sessionId: string = state,
+) {
+  return { sessionId, state }
 }
 
 describe('agent character presentation ownership', () => {
@@ -106,5 +109,93 @@ describe('agent character presentation ownership', () => {
       reducer.setAgentEnabled(true).current,
       { owner: 'agent', mode: 'relaxed', generation: 3 },
     )
+  })
+
+  it('emits one completion cue when the final active session transitions to done', () => {
+    const reducer = new CharacterPresentationReducer()
+
+    reducer.setAgentEnabled(true)
+    reducer.applyAmbient({
+      sequence: 40,
+      sessions: [session('working', 'a'), session('done', 'b')],
+    })
+
+    const completed = reducer.applyAmbient({
+      sequence: 41,
+      sessions: [session('done', 'a'), session('done', 'b')],
+    })
+
+    assert.deepEqual(completed.current, { owner: 'agent', mode: 'relaxed', generation: 3 })
+    assert.deepEqual(completed.cues, [{
+      kind: 'all-sessions-done',
+      ambientSequence: 41,
+      presentationGeneration: 3,
+    }])
+
+    const repeated = reducer.applyAmbient({
+      sequence: 42,
+      sessions: [session('done', 'a'), session('done', 'b')],
+    })
+
+    assert.equal(repeated.changed, false)
+    assert.deepEqual(repeated.cues, [])
+  })
+
+  it('waits for every active session before emitting the completion cue', () => {
+    const reducer = new CharacterPresentationReducer()
+
+    reducer.setAgentEnabled(true)
+    reducer.applyAmbient({
+      sequence: 50,
+      sessions: [session('working', 'a'), session('waiting', 'b')],
+    })
+
+    const partial = reducer.applyAmbient({
+      sequence: 51,
+      sessions: [session('done', 'a'), session('waiting', 'b')],
+    })
+
+    assert.deepEqual(partial.cues, [])
+
+    const completed = reducer.applyAmbient({
+      sequence: 52,
+      sessions: [session('done', 'a'), session('done', 'b')],
+    })
+
+    assert.deepEqual(completed.cues.map(cue => cue.kind), ['all-sessions-done'])
+  })
+
+  it('does not mistake SessionEnd removal for a completion transition', () => {
+    const reducer = new CharacterPresentationReducer()
+
+    reducer.setAgentEnabled(true)
+    reducer.applyAmbient({
+      sequence: 60,
+      sessions: [session('working', 'removed'), session('done', 'remaining')],
+    })
+
+    const removed = reducer.applyAmbient({
+      sequence: 61,
+      sessions: [session('done', 'remaining')],
+    })
+
+    assert.deepEqual(removed.current, { owner: 'agent', mode: 'relaxed', generation: 3 })
+    assert.deepEqual(removed.cues, [])
+  })
+
+  it('does not replay historical completion after reconnecting or enabling Agent control later', () => {
+    const reducer = new CharacterPresentationReducer()
+
+    const restored = reducer.applyAmbient({
+      sequence: 70,
+      sessions: [session('done', 'already-done')],
+    })
+
+    assert.deepEqual(restored.cues, [])
+
+    const takeover = reducer.setAgentEnabled(true)
+
+    assert.deepEqual(takeover.current, { owner: 'agent', mode: 'relaxed', generation: 1 })
+    assert.deepEqual(takeover.cues, [])
   })
 })

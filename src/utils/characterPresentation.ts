@@ -2,6 +2,7 @@ export type AgentSessionState = 'idle' | 'working' | 'waiting' | 'done'
 export type CharacterMode = 'relaxed' | 'guitar' | 'angry'
 
 export interface CharacterAmbientSession {
+  readonly sessionId: string
   readonly state: AgentSessionState
 }
 
@@ -21,10 +22,17 @@ export type CharacterPresentationSnapshot
     readonly generation: number
   }
 
+export interface CharacterPresentationCue {
+  readonly kind: 'all-sessions-done'
+  readonly ambientSequence: number
+  readonly presentationGeneration: number
+}
+
 export interface CharacterPresentationTransition {
   readonly changed: boolean
   readonly previous: CharacterPresentationSnapshot
   readonly current: CharacterPresentationSnapshot
+  readonly cues: readonly CharacterPresentationCue[]
 }
 
 /**
@@ -53,10 +61,32 @@ export class CharacterPresentationReducer {
   public applyAmbient(snapshot: CharacterAmbientSnapshot): CharacterPresentationTransition {
     if (snapshot.sequence <= this.ambientSequence) return this.unchanged()
 
-    this.ambientSequence = snapshot.sequence
-    this.sessions = snapshot.sessions.map(session => ({ state: session.state }))
+    const previousSessions = this.sessions
 
-    return this.reconcile()
+    this.ambientSequence = snapshot.sequence
+    this.sessions = snapshot.sessions.map(session => ({
+      sessionId: session.sessionId,
+      state: session.state,
+    }))
+
+    const transition = this.reconcile()
+
+    if (
+      !this.agentEnabled
+      || transition.current.owner !== 'agent'
+      || !didAllSessionsComplete(previousSessions, this.sessions)
+    ) {
+      return transition
+    }
+
+    return {
+      ...transition,
+      cues: [{
+        kind: 'all-sessions-done',
+        ambientSequence: snapshot.sequence,
+        presentationGeneration: transition.current.generation,
+      }],
+    }
   }
 
   private reconcile(): CharacterPresentationTransition {
@@ -84,6 +114,7 @@ export class CharacterPresentationReducer {
       changed: true,
       previous,
       current: this.current,
+      cues: [],
     }
   }
 
@@ -92,8 +123,31 @@ export class CharacterPresentationReducer {
       changed: false,
       previous: this.current,
       current: this.current,
+      cues: [],
     }
   }
+}
+
+function didAllSessionsComplete(
+  previousSessions: readonly CharacterAmbientSession[],
+  currentSessions: readonly CharacterAmbientSession[],
+): boolean {
+  if (
+    currentSessions.length === 0
+    || currentSessions.some(session => session.state !== 'done')
+  ) {
+    return false
+  }
+
+  const previousStates = new Map(
+    previousSessions.map(session => [session.sessionId, session.state]),
+  )
+
+  return currentSessions.some((session) => {
+    const previousState = previousStates.get(session.sessionId)
+
+    return previousState === 'working' || previousState === 'waiting'
+  })
 }
 
 export function deriveCharacterMode(sessions: readonly CharacterAmbientSession[]): CharacterMode {

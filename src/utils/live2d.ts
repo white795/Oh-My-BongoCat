@@ -8,6 +8,7 @@ import JSON5 from 'json5'
 import { Application, Ticker } from 'pixi.js'
 
 import type { ModelSize } from '@/composables/useModel'
+import type { CharacterMode } from '@/utils/characterPresentation'
 
 import { i18n } from '@/locales'
 
@@ -19,15 +20,23 @@ import { join } from './path'
 
 Config.MouseFollow = false
 
+const MIKUCAT_EXPRESSION_FILES: Record<CharacterMode, string> = {
+  relaxed: 'expressions/default.exp3.json',
+  angry: 'expressions/angry.exp3.json',
+  guitar: 'expressions/guitar.exp3.json',
+}
+
 class Live2d {
   private app: Application | null = null
+  private agentExpressionIndexes: Partial<Record<CharacterMode, number>> = {}
+  private agentPresentationMode?: CharacterMode
   private guitarExpressionIndex = -1
   private readonly guitarHands = new GuitarHandAnimation((id, value) => this.setParameterValue(id, value))
   private readonly updateGuitarHands = (ticker: Ticker) => {
     this.guitarHands.update(ticker.deltaMS, this.mouseHandPose(), this.mouseHeadPose())
     if (!this.guitarHands.isActive) {
       Ticker.shared.remove(this.updateGuitarHands)
-      this.mouseInput.setEnabled(true)
+      this.syncMouseInputOwnership()
     }
   }
 
@@ -76,9 +85,15 @@ class Live2d {
     const modelJSON = JSON5.parse(await readTextFile(modelPath))
 
     if (presetKey === 'mikucat') {
-      this.guitarExpressionIndex = modelJSON.FileReferences?.Expressions?.findIndex(
-        (expression: { File: string }) => expression.File === 'expressions/guitar.exp3.json',
-      ) ?? -1
+      const expressions = modelJSON.FileReferences?.Expressions ?? []
+
+      for (const [mode, file] of Object.entries(MIKUCAT_EXPRESSION_FILES)) {
+        const index = expressions.findIndex((expression: { File: string }) => expression.File === file)
+
+        if (index >= 0) this.agentExpressionIndexes[mode as CharacterMode] = index
+      }
+
+      this.guitarExpressionIndex = this.agentExpressionIndexes.guitar ?? -1
     }
 
     const modelSetting = new CubismSetting({
@@ -115,6 +130,8 @@ class Live2d {
     Ticker.shared.remove(this.updateGuitarHands)
     this.guitarHands.abort()
     this.mouseInput.reset()
+    this.agentExpressionIndexes = {}
+    this.agentPresentationMode = undefined
     this.guitarExpressionIndex = -1
 
     if (!this.model) return
@@ -158,9 +175,34 @@ class Live2d {
       if (this.guitarHands.start(initialPose, initialHead)) Ticker.shared.add(this.updateGuitarHands)
     } else if (this.guitarHands.isActive) {
       this.guitarHands.stop(this.mouseHandPose(), this.mouseHeadPose())
-    } else {
-      this.mouseInput.setEnabled(true)
     }
+
+    this.syncMouseInputOwnership()
+  }
+
+  public applyAgentPresentation(mode: CharacterMode) {
+    const index = this.agentExpressionIndexes[mode]
+
+    if (index === undefined) return false
+
+    this.agentPresentationMode = mode
+    this.setExpression(index)
+    return true
+  }
+
+  public releaseAgentPresentation() {
+    const wasActive = this.agentPresentationMode !== undefined
+    const relaxedIndex = this.agentExpressionIndexes.relaxed
+
+    this.agentPresentationMode = undefined
+
+    if (wasActive && relaxedIndex !== undefined) {
+      this.setExpression(relaxedIndex)
+    } else {
+      this.syncMouseInputOwnership()
+    }
+
+    return true
   }
 
   private mouseHandPose() {
@@ -175,6 +217,13 @@ class Live2d {
       x: this.mouseInput.latest('ParamAngleX') ?? 0,
       y: this.mouseInput.latest('ParamAngleY') ?? 0,
     }
+  }
+
+  private syncMouseInputOwnership() {
+    const agentBlocksMouse = this.agentPresentationMode === 'angry'
+      || this.agentPresentationMode === 'guitar'
+
+    this.mouseInput.setEnabled(!agentBlocksMouse && !this.guitarHands.isActive)
   }
 
   public getParameterValueRange(id: string) {

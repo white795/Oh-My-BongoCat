@@ -28,3 +28,4 @@ __pycache__/
 # src-tauri/assets/models/mikucat/ and must remain trackable.
 /mikucat/
 /mikucat-lived2d/
+/mikucat-lived2d-v2/

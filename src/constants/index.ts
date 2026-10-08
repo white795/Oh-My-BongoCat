@@ -18,6 +18,7 @@ export const INVOKE_KEY = {
   START_DEVICE_LISTENING: 'start_device_listening',
   START_GAMEPAD_LISTING: 'start_gamepad_listing',
   STOP_GAMEPAD_LISTING: 'stop_gamepad_listing',
+  SET_AGENT_MODEL_CONTROL_ENABLED: 'set_agent_model_control_enabled',
   SET_CODEX_AMBIENT_ENABLED: 'set_codex_ambient_enabled',
   GET_CODEX_AMBIENT_SNAPSHOT: 'get_codex_ambient_snapshot',
   COMPLETE_AGENT_AMBIENT_ALERT: 'complete_agent_ambient_alert',

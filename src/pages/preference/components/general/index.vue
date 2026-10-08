@@ -58,6 +58,13 @@ watch(() => generalStore.app.autostart, async (value) => {
     >
       <Switch v-model:checked="generalStore.app.codexAmbientEnabled" />
     </ProListItem>
+
+    <ProListItem
+      :description="$t('pages.preference.general.hints.agentModelControl')"
+      :title="$t('pages.preference.general.labels.agentModelControl')"
+    >
+      <Switch v-model:checked="generalStore.app.agentModelControlEnabled" />
+    </ProListItem>
   </ProList>
 
   <ProList :title="$t('pages.preference.general.labels.appearanceSettings')">

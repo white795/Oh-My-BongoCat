@@ -63,6 +63,16 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => generalStore.app.agentModelControlEnabled,
+  async (enabled) => {
+    if (appWindow.label !== WINDOW_LABEL.MAIN) return
+
+    await invoke(INVOKE_KEY.SET_AGENT_MODEL_CONTROL_ENABLED, { enabled })
+  },
+  { immediate: true },
+)
+
 useTauriListen(LISTEN_KEY.SHOW_WINDOW, ({ payload }) => {
   if (appWindow.label !== payload) return
 

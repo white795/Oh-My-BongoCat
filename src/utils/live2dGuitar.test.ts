@@ -12,6 +12,7 @@ import { ModelMouseInput } from './modelMouseInput.ts'
 function fixture() {
   const callbacks = new Set<(ticker: { deltaMS: number }) => void>()
   const parameters = new Map<string, number>()
+  const selectedExpressions: number[] = []
   const manifest = readFileSync(new URL('../../src-tauri/assets/models/mikucat/mikucat.model3.json', import.meta.url), 'utf8')
   const source = readFileSync(new URL('./live2d.ts', import.meta.url), 'utf8')
   const { outputText } = ts.transpileModule(source, { compilerOptions: {
@@ -31,7 +32,10 @@ function fixture() {
       return JSON.parse(manifest).FileReferences.Expressions
     }
 
-    setExpression() { }
+    setExpression({ index }: { index: number }) {
+      selectedExpressions.push(index)
+    }
+
     setParameterValueById(id: string, value: number) {
       parameters.set(id, value)
     }
@@ -82,6 +86,8 @@ function fixture() {
   }, { filename: 'live2d.cjs' })
   const host = exports.default as {
     load: (path: string, presetKey?: string) => Promise<unknown>
+    applyAgentPresentation: (mode: 'relaxed' | 'guitar' | 'angry') => boolean
+    releaseAgentPresentation: () => boolean
     setExpression: (index: number) => void
     destroy: () => void
     readonly isGuitarPerforming: boolean
@@ -92,8 +98,53 @@ function fixture() {
       for (const callback of [...callbacks]) callback({ deltaMS: Math.min(10, ms - elapsed) })
     }
   }
-  return { host, advance, callbacks, parameters }
+  return { host, advance, callbacks, parameters, selectedExpressions }
 }
+
+it('maps Agent modes by semantic expression file and gives mouse control only to relaxed mode', async () => {
+  const { host, advance, parameters, selectedExpressions } = fixture()
+  await host.load('model', 'mikucat')
+
+  host.mouseInput.write('ParamAngleX', 12)
+  assert.equal(host.applyAgentPresentation('angry'), true)
+  assert.deepEqual(selectedExpressions, [2])
+  assert.equal(host.mouseInput.accepts(host.mouseInput.begin()), false)
+  assert.equal(parameters.get('ParamAngleX'), 0)
+
+  host.mouseInput.write('ParamAngleX', -18)
+  assert.equal(parameters.get('ParamAngleX'), 0)
+
+  assert.equal(host.applyAgentPresentation('guitar'), true)
+  assert.deepEqual(selectedExpressions, [2, 3])
+  assert.equal(host.isGuitarPerforming, true)
+  assert.equal(host.mouseInput.accepts(host.mouseInput.begin()), false)
+
+  assert.equal(host.applyAgentPresentation('relaxed'), true)
+  assert.deepEqual(selectedExpressions, [2, 3, 0])
+  advance(1000)
+  assert.equal(host.isGuitarPerforming, false)
+  assert.equal(host.mouseInput.accepts(host.mouseInput.begin()), true)
+})
+
+it('restores the default expression and mouse ownership when Agent control is released', async () => {
+  const { host, selectedExpressions } = fixture()
+  await host.load('model', 'mikucat')
+
+  host.applyAgentPresentation('angry')
+
+  assert.equal(host.releaseAgentPresentation(), true)
+  assert.deepEqual(selectedExpressions, [2, 0])
+  assert.equal(host.mouseInput.accepts(host.mouseInput.begin()), true)
+})
+
+it('does not apply Agent presentation to models without the MikuCat capability', async () => {
+  const { host, selectedExpressions } = fixture()
+  await host.load('model', 'standard')
+
+  assert.equal(host.applyAgentPresentation('guitar'), false)
+  assert.deepEqual(selectedExpressions, [])
+  assert.equal(host.mouseInput.accepts(host.mouseInput.begin()), true)
+})
 
 it('returns head and hand control to the latest cursor target, even if it moves during the exit', async () => {
   const { host, advance, callbacks, parameters } = fixture()
