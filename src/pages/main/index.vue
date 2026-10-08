@@ -12,6 +12,7 @@ import { round } from 'es-toolkit'
 import { nth } from 'es-toolkit/compat'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 
+import type { AngryAnimationIntensity } from '@/utils/angryAnimation'
 import type { GuitarNote } from '@/utils/guitarEffectEngine'
 import type { GuitarMotifId } from '@/utils/guitarMotifs'
 import type { GuitarPerformanceProfile, GuitarPerformanceTemplateId } from '@/utils/guitarPerformance'
@@ -51,6 +52,7 @@ const guitarNotes = ref<readonly GuitarNote[]>([])
 const guitarNoteTimers = new Map<number, number>()
 let guitarRestTimer: number | undefined
 const { startListening } = useDevice({ onKeyboardPress: handleGuitarKeyPress })
+const angryDebugIntensities: readonly AngryAnimationIntensity[] = ['annoyed', 'impatient', 'furious']
 const guitarDebugProfiles = ['autonomous', 'engaged', 'groove', 'drive'] as const
 const guitarDebugMotifs: readonly { text: string, motifId?: GuitarMotifId }[] = [
   { text: 'AUTO (PLANNER)' },
@@ -70,6 +72,10 @@ const guitarDebugActivity: Record<GuitarPerformanceProfile, number> = {
   engaged: 0.25,
   groove: 0.6,
   drive: 1,
+}
+
+function setAngryDebugIntensity(intensity: AngryAnimationIntensity) {
+  return live2d.setAngryAnimationIntent({ intensity })
 }
 
 function setGuitarDebugProfile(profile: GuitarPerformanceProfile, activity = guitarDebugActivity[profile], releasing = false) {
@@ -94,6 +100,12 @@ function setGuitarDebugMotifPreview(motifId?: GuitarMotifId) {
 
 if (import.meta.env.DEV) {
   Object.assign(window, {
+    __BONGO_CAT_ANGRY_DEBUG__: {
+      set: setAngryDebugIntensity,
+      snapshot() {
+        return live2d.angryAnimationSnapshot
+      },
+    },
     __BONGO_CAT_GUITAR_DEBUG__: {
       set: setGuitarDebugProfile,
       setTemplate: setGuitarDebugTemplate,
@@ -322,10 +334,26 @@ async function handleContextmenu(event: MouseEvent) {
       ]
     : []
 
+  const angryDebugItems = import.meta.env.DEV
+    ? [
+        await Submenu.new({
+          text: 'Angry intensity — next entry (dev)',
+          items: await Promise.all(angryDebugIntensities.map((intensity) => {
+            return CheckMenuItem.new({
+              text: intensity.toUpperCase(),
+              checked: live2d.angryAnimationSnapshot.requestedIntent.intensity === intensity,
+              action: () => setAngryDebugIntensity(intensity),
+            })
+          })),
+        }),
+      ]
+    : []
+
   const menu = await Menu.new({
     items: [
       ...await getBaseMenu(),
       ...guitarDebugItems,
+      ...angryDebugItems,
       await PredefinedMenuItem.new({ item: 'Separator' }),
       ...await getExitMenu(),
     ],

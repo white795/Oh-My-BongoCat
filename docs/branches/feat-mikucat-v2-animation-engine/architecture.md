@@ -101,6 +101,25 @@ V2 的鬓发、马尾、刘海和发带虽然在模型 physics 中消费 `ParamA
 只消费最终头部位置与速度并产生不同频率、阻尼和幅度的延迟回弹；乐句和 Motif 不得各自写头发
 关键帧。退出吉他时，这九个覆盖与其他动画通道一起释放，默认态仍交还模型原有 physics。
 
+## Angry Animation Boundary
+
+ANGRY 动画只消费状态机已经归约好的 durable intensity：`annoyed / impatient / furious`。8 秒、
+25 秒阈值、单调时间、generation 和 `anger-escalated` cue 均属于状态机，不得在动画分支复制。
+
+现有 `angry.exp3.json` 独占脸部语义，动画机不写 `Param9..13`。第一版 ANGRY 获取头、身体、
+双耳、持葱右手绑定的 `ParamMouseX/Y`、普通左手 `Param25/26`、九个头发输出和其余鼠标控制参数；
+不获取吉他双手 `Param21..24`、吉他或脚。该映射来自 moc3 核心差异检查：`ParamMouseX/Y`
+只改变 `dacong` 与相邻手部网格，`Param25/26` 只改变空着的普通左手，`ParamMouseRightDown` 不改变
+任何网格。`impatient` 中持葱手与两次催促同步挥动，普通左手只在主动作之后低幅跟随；`furious`
+以五秒内一段多方向连续乱舞和最终重砸表达受控爆发，身体保持向下承力，双脚始终交还模型 physics；
+`annoyed` 两手均保持中立。三个 intensity 必须共用一个
+ticker 和一套连续姿态播放器：档位变化更新后续动作意图，不在当前帧重启或跳零。头发次级运动
+应抽为 MikuCat 公共能力并由吉他与 ANGRY 共用，不能复制两套弹簧常量后分别漂移。
+
+模型动画和模型外特效仍为并列消费者：durable intensity 决定持续姿态，未来
+`anger-escalated` cue 可以触发一次性烟雾、火花或气场强调。动画机和特效机不得互相调用；两者只在
+最终 integration plan 中由同一 `CharacterStateUpdate` 扇出。
+
 ## Animation Engine Boundary
 
 - 单一 ticker 推进所有通道，避免头、身体与手部因多个帧循环产生相位漂移或重复更新；

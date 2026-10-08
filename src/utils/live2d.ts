@@ -11,20 +11,24 @@ import type { ModelSize } from '@/composables/useModel'
 
 import { i18n } from '@/locales'
 
+import type { AngryAnimationIntent } from './angryAnimation'
 import type { GuitarMotifId } from './guitarMotifs'
 import type { GuitarPerformanceIntent, GuitarPerformanceTemplateId } from './guitarPerformance'
 import type { ModelPresetKey } from './modelPresets'
 
+import { AngryAnimation } from './angryAnimation'
 import { GuitarHandAnimation } from './guitarHandAnimation'
 import { ModelMouseInput } from './modelMouseInput'
-import { MIKUCAT_GUITAR_OWNED_PARAMETERS, ModelParameterOwnership } from './modelParameterOwnership'
+import { MIKUCAT_ANGRY_OWNED_PARAMETERS, MIKUCAT_GUITAR_OWNED_PARAMETERS, ModelParameterOwnership } from './modelParameterOwnership'
 import { join } from './path'
 
 Config.MouseFollow = false
 
 class Live2d {
   private app: Application | null = null
+  private angryExpressionIndex = -1
   private guitarExpressionIndex = -1
+  private readonly angryParameterOwner = Symbol('mikucat-angry-animation')
   private readonly guitarParameterOwner = Symbol('mikucat-guitar-animation')
   private readonly parameterOwnership = new ModelParameterOwnership(
     (id, value, weight) => this.setParameterValue(id, value, weight),
@@ -35,12 +39,25 @@ class Live2d {
     this.parameterOwnership.write(this.guitarParameterOwner, id, value)
   })
 
+  private readonly angryAnimation = new AngryAnimation((id, value) => {
+    this.parameterOwnership.write(this.angryParameterOwner, id, value)
+  })
+
+  private readonly updateAngryAnimation = (ticker: Ticker) => {
+    this.angryAnimation.update(ticker.deltaMS)
+    if (!this.angryAnimation.isActive) {
+      Ticker.shared.remove(this.updateAngryAnimation)
+      this.parameterOwnership.release(this.angryParameterOwner)
+      this.syncMouseInputOwnership()
+    }
+  }
+
   private readonly updateGuitarHands = (ticker: Ticker) => {
     this.guitarHands.update(ticker.deltaMS, undefined, this.mouseHeadPose())
     if (!this.guitarHands.isActive) {
       Ticker.shared.remove(this.updateGuitarHands)
       this.parameterOwnership.release(this.guitarParameterOwner)
-      this.mouseInput.setEnabled(true)
+      this.syncMouseInputOwnership()
     }
   }
 
@@ -48,6 +65,20 @@ class Live2d {
   public readonly mouseInput = new ModelMouseInput((id, value) => this.setParameterValue(id, value))
 
   constructor() { }
+
+  public get isAngryAnimating() {
+    const { phase } = this.angryAnimation.snapshot
+
+    return phase === 'entering' || phase === 'playing'
+  }
+
+  public get angryAnimationSnapshot() {
+    return this.angryAnimation.snapshot
+  }
+
+  public setAngryAnimationIntent(intent: AngryAnimationIntent) {
+    return this.angryAnimation.setIntent(intent)
+  }
 
   public get isGuitarPerforming() {
     const { phase } = this.guitarHands.snapshot
@@ -105,6 +136,9 @@ class Live2d {
     const modelJSON = JSON5.parse(await readTextFile(modelPath))
 
     if (presetKey === 'mikucat') {
+      this.angryExpressionIndex = modelJSON.FileReferences?.Expressions?.findIndex(
+        (expression: { File: string }) => expression.File === 'expressions/angry.exp3.json',
+      ) ?? -1
       this.guitarExpressionIndex = modelJSON.FileReferences?.Expressions?.findIndex(
         (expression: { File: string }) => expression.File === 'expressions/guitar.exp3.json',
       ) ?? -1
@@ -141,10 +175,14 @@ class Live2d {
   }
 
   public destroy() {
+    Ticker.shared.remove(this.updateAngryAnimation)
     Ticker.shared.remove(this.updateGuitarHands)
+    this.angryAnimation.abort()
     this.guitarHands.abort()
+    this.parameterOwnership.release(this.angryParameterOwner)
     this.parameterOwnership.release(this.guitarParameterOwner)
     this.mouseInput.reset()
+    this.angryExpressionIndex = -1
     this.guitarExpressionIndex = -1
 
     if (!this.model) return
@@ -181,16 +219,33 @@ class Live2d {
 
     this.model.setExpression({ index })
 
-    if (index === this.guitarExpressionIndex) {
+    if (index === this.angryExpressionIndex) {
+      if (this.guitarHands.isActive) {
+        this.guitarHands.stop(undefined, this.mouseHeadPose())
+        return
+      }
+      const initialHead = this.mouseHeadPose()
+      if (!this.parameterOwnership.acquire(this.angryParameterOwner, MIKUCAT_ANGRY_OWNED_PARAMETERS)) return
+      this.mouseInput.setEnabled(false)
+      if (this.angryAnimation.start(initialHead)) Ticker.shared.add(this.updateAngryAnimation)
+    } else if (index === this.guitarExpressionIndex) {
+      if (this.angryAnimation.isActive) {
+        this.angryAnimation.stop(this.mouseHeadPose())
+        return
+      }
       const initialHead = this.mouseHeadPose()
       if (!this.parameterOwnership.acquire(this.guitarParameterOwner, MIKUCAT_GUITAR_OWNED_PARAMETERS)) return
       this.mouseInput.setEnabled(false)
       if (this.guitarHands.start(undefined, initialHead)) Ticker.shared.add(this.updateGuitarHands)
-    } else if (this.guitarHands.isActive) {
-      this.guitarHands.stop(undefined, this.mouseHeadPose())
     } else {
-      this.mouseInput.setEnabled(true)
+      if (this.angryAnimation.isActive) this.angryAnimation.stop(this.mouseHeadPose())
+      if (this.guitarHands.isActive) this.guitarHands.stop(undefined, this.mouseHeadPose())
+      this.syncMouseInputOwnership()
     }
+  }
+
+  private syncMouseInputOwnership() {
+    this.mouseInput.setEnabled(!this.angryAnimation.isActive && !this.guitarHands.isActive)
   }
 
   private mouseHeadPose() {

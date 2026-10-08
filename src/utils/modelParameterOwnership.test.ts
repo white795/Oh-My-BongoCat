@@ -3,8 +3,13 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+  MIKUCAT_ANGRY_OWNED_PARAMETERS,
+  MIKUCAT_ANGRY_POSE_PARAMETERS,
   MIKUCAT_GUITAR_OWNED_PARAMETERS,
   MIKUCAT_GUITAR_ROLES,
+  MIKUCAT_LEEK_HAND_CHANNELS,
+  MIKUCAT_MOUSE_CONTROL_PARAMETERS,
+  MIKUCAT_NORMAL_LEFT_HAND_CHANNELS,
   MIKUCAT_V2_ANIMATION_PARAMETERS,
   MIKUCAT_V2_CHANNELS,
   MIKUCAT_V2_HAIR_CHANNELS,
@@ -52,6 +57,39 @@ describe('MikuCat V2 parameter manifest', () => {
     )
     for (const id of Object.values(MIKUCAT_V2_HAIR_CHANNELS)) {
       assert.ok(MIKUCAT_GUITAR_OWNED_PARAMETERS.includes(id))
+    }
+  })
+
+  it('uses the cursor axes bound to the leek and its hand instead of either anatomical hand pair or click input', () => {
+    assert.deepEqual(MIKUCAT_ANGRY_POSE_PARAMETERS, [
+      'ParamAngleX',
+      'ParamAngleY',
+      'Param14',
+      'Param15',
+      'Param18',
+      'Param16',
+      'Param17',
+      'Param19',
+      'Param25',
+      'Param26',
+    ])
+    assert.deepEqual(
+      [...MIKUCAT_ANGRY_OWNED_PARAMETERS].sort(),
+      [
+        ...MIKUCAT_ANGRY_POSE_PARAMETERS,
+        ...Object.values(MIKUCAT_V2_HAIR_CHANNELS),
+        ...MIKUCAT_MOUSE_CONTROL_PARAMETERS,
+      ].sort(),
+    )
+    assert.deepEqual(MIKUCAT_LEEK_HAND_CHANNELS, { x: 'ParamMouseX', y: 'ParamMouseY' })
+    assert.deepEqual(MIKUCAT_NORMAL_LEFT_HAND_CHANNELS, { x: 'Param25', y: 'Param26' })
+    assert.ok(MIKUCAT_ANGRY_OWNED_PARAMETERS.includes(MIKUCAT_LEEK_HAND_CHANNELS.x))
+    assert.ok(MIKUCAT_ANGRY_OWNED_PARAMETERS.includes(MIKUCAT_LEEK_HAND_CHANNELS.y))
+    assert.ok(MIKUCAT_ANGRY_OWNED_PARAMETERS.includes(MIKUCAT_NORMAL_LEFT_HAND_CHANNELS.x))
+    assert.ok(MIKUCAT_ANGRY_OWNED_PARAMETERS.includes(MIKUCAT_NORMAL_LEFT_HAND_CHANNELS.y))
+    const angryParameters = new Set<string>(MIKUCAT_ANGRY_OWNED_PARAMETERS)
+    for (const id of ['Param9', 'Param10', 'Param11', 'Param12', 'Param13', 'Param21', 'Param22', 'Param23', 'Param24', 'Param34', 'Param36', 'Param37', 'Param38', 'Param39', 'Param40', 'Param41']) {
+      assert.equal(angryParameters.has(id), false)
     }
   })
 })

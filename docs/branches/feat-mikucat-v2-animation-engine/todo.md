@@ -22,11 +22,13 @@
 
 ## Active Plan
 
+- [Plan 026](plans/plan-026-angry-animation-engine.md)（active；`annoyed / impatient / furious` 三档模型
+  动画均已完成视觉冻结，下一步明确 ANGRY 模型外特效及升级衔接边界）
 - [Plan 022](plans/plan-022-guitar-effect-engine.md)（waiting-integration；特效核心已完成，停止独立扩展，
   等 ANGRY、豆豆完成动作和顶层表现消费者具备后统一接状态总线）
 
-当前没有活动中的吉他动画计划。下一步先为 ANGRY 三档动画建立新计划；豆豆
-`all-sessions-done` 一次性完成动作单独编排，二者均不提前复制状态机逻辑。
+吉他动画计划已经全部关闭。当前只推进 Plan 026；豆豆 `all-sessions-done` 一次性完成动作另立计划，
+二者均不提前复制状态机逻辑。
 
 最近完成：
 
@@ -42,12 +44,43 @@
 ## Execution Order
 
 1. 吉他动画核心保持冻结，只接受缺陷修复，不再增加动作或扩张第一版规划器语义。
-2. 新建 ANGRY 动画计划，按状态机已经冻结的 `annoyed / impatient / furious` 语义独立设计和验收。
+2. Plan 026 的 `annoyed / impatient / furious` 已完成隔离设计和视觉验收；下一步只处理模型外特效、
+   安全升级与最终接线，不再修改冻结动作曲线。
 3. 单独编排 `all-sessions-done` 豆豆完成动作，验证进入、退出以及被新一代 WORKING/WAITING 抢占。
 4. 动画与特效能力稳定后，在目标分支新建 integration plan，由单一顶层消费者接入
    `CharacterStateUpdate` 并完成联合 Windows dev 验收。
 
 ## Progress Record
+
+Plan 026 首个 Red-Green 增量已完成。状态机分支确认 ANGRY durable intensity 固定为
+`annoyed / impatient / furious`，分别在进入、8 秒和 25 秒到达；动画分支不复制计时。当前新增的
+`AngryAnimation` 首轮只接受 `annoyed`，以克制前倾、缓慢侧看和不对称耳朵构成 4.6 秒闭合循环，并以
+连续进入/退出过渡归还姿态。现有 `angry.exp3.json` 继续独占脸部参数；动画获取头、身体、双耳、
+九个头发、持葱右手绑定的 `ParamMouseX/Y`、普通左手 `Param25/26` 和鼠标控制参数，明确排除表情、
+吉他双手 `Param21..24`、吉他与脚。两手是根据视觉反馈新增的受控轨道；`annoyed` 保持中立，
+`impatient / furious` 才编排挥葱。
+
+原 `GuitarHairMotion` 已抽为公共 `MikuCatHairMotion` 并保留兼容导出，吉他弹簧常量和积分算法未改。
+内置 MikuCat 的生气表达式已加入仅供首档隔离验收的宿主入口，退出后释放覆盖并恢复最新鼠标目标；
+其他预设不会启动。5 个相关测试文件、TypeScript、定向 ESLint 和差异检查通过。首个增量当时只验收
+`default → angry → default`；`guitar ↔ angry` 快速仲裁和后两档尚未实现，不在该轮一并验收。
+
+Windows dev 随后反馈首版 `annoyed` 幅度过小；扩大头部侧看与下压、身体承力及双耳不对称行程后，
+用户确认新版明显改善，第一档据此冻结。第二档 `impatient` 现已完成代码：4.0 秒闭合时间轴先停稳，
+随后包含两次分离的短促前探，第一次后回弹、第二次更重，身体延迟承力，末段重新停稳；持葱右手
+通过 `ParamMouseX/Y` 同步执行小挥、回收和接近完整范围的第二次挥动。moc3 核心差异检查确认这两个
+参数只改变 `dacong` 与相邻手部网格；`ParamMouseRightDown` 不改变网格，已从 ANGRY 动作轨道撤回。
+实机确认右手映射正确后，按反馈将其轨迹缩至约七成，并让 `Param25/26` 普通左手以不超过约四分之一
+范围的幅度延迟跟随，避免静止僵硬但不抢主动作。开发菜单
+新增下一次入场强度预设；当前播放不会被调试菜单中途切断。用户确认缩减后的持葱右手与低幅左手
+跟随均符合预期，第二档据此冻结。第三档最初采用单次起跳，但 Windows 录像确认身体和双脚只能产生
+局部网格拉伸/折叠，无法表达整体离地，该尝试已撤销且 `Param36..41` 已从所有权和写入清单移除。
+当前 `furious` 改为五秒落地时间轴：短暂蓄力后进行约 2.4 秒多方向持葱乱舞，以一次重砸结束并逐层
+回稳；身体全程向下承力。首轮实机确认乱舞主体效果良好，但重砸不够突出且普通左手逐击跟随不自然；
+当前已为重砸加入“抬手短停—快速砸下—压住”三段层次，左手改为低频承力弧线。开发菜单暴露三档。
+相关定向测试、类型检查、ESLint 与差异检查通过；Windows dev 复验确认最终版本效果良好，第三档
+据此冻结。三档模型动画资产现已全部完成，下一步进入 ANGRY 模型外特效与强度安全升级；真实状态
+总线接线仍留给 integration plan。
 
 历史推进记录：Plan 021 的任务 6 完成后进入任务 7 / Plan 025。任务 5 已停止扩充随机动作池并冻结八项动作；第一条有明确职责的基础句 A 已通过验收。新增的四拍
 `steady-groove` 在单一时间轴上按“按弦准备 → 拨弦 → 琴体 → 身体 → 头 → 耳朵”传递力量；

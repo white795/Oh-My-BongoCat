@@ -55,6 +55,18 @@ export const MIKUCAT_V2_ANIMATION_PARAMETERS: readonly ModelAnimationParameter[]
   { id: MIKUCAT_V2_CHANNELS.guitar.y, min: -30, max: 30 },
 ]
 
+// Core-model inspection confirms these axes deform only the leek mesh and its
+// adjacent hand mesh. Param25/26 instead belong to the empty normal left hand.
+export const MIKUCAT_LEEK_HAND_CHANNELS = {
+  x: 'ParamMouseX',
+  y: 'ParamMouseY',
+} as const
+
+export const MIKUCAT_NORMAL_LEFT_HAND_CHANNELS = {
+  x: 'Param25',
+  y: 'Param26',
+} as const
+
 // These inputs are neutralized while the autonomous animation owns the model.
 // Angle X/Y already belong to the animation manifest and are not duplicated.
 export const MIKUCAT_MOUSE_CONTROL_PARAMETERS = [
@@ -66,6 +78,25 @@ export const MIKUCAT_MOUSE_CONTROL_PARAMETERS = [
 
 export const MIKUCAT_GUITAR_OWNED_PARAMETERS = [
   ...MIKUCAT_V2_ANIMATION_PARAMETERS.map(parameter => parameter.id),
+  ...Object.values(MIKUCAT_V2_HAIR_CHANNELS),
+  ...MIKUCAT_MOUSE_CONTROL_PARAMETERS,
+] as const
+
+export const MIKUCAT_ANGRY_POSE_PARAMETERS = [
+  MIKUCAT_V2_CHANNELS.head.x,
+  MIKUCAT_V2_CHANNELS.head.y,
+  MIKUCAT_V2_CHANNELS.body.x,
+  MIKUCAT_V2_CHANNELS.body.y,
+  MIKUCAT_V2_CHANNELS.leftEar.x,
+  MIKUCAT_V2_CHANNELS.leftEar.y,
+  MIKUCAT_V2_CHANNELS.rightEar.x,
+  MIKUCAT_V2_CHANNELS.rightEar.y,
+  MIKUCAT_NORMAL_LEFT_HAND_CHANNELS.x,
+  MIKUCAT_NORMAL_LEFT_HAND_CHANNELS.y,
+] as const
+
+export const MIKUCAT_ANGRY_OWNED_PARAMETERS = [
+  ...MIKUCAT_ANGRY_POSE_PARAMETERS,
   ...Object.values(MIKUCAT_V2_HAIR_CHANNELS),
   ...MIKUCAT_MOUSE_CONTROL_PARAMETERS,
 ] as const

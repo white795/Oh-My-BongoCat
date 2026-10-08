@@ -5,14 +5,16 @@ import { it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 
+import type { AngryAnimationIntent } from './angryAnimation.ts'
 import type { GuitarMotifId } from './guitarMotifs.ts'
 import type { GuitarPerformanceIntent, GuitarPerformanceTemplateId } from './guitarPerformance.ts'
 
+import { ANGRY_ANIMATION, AngryAnimation } from './angryAnimation.ts'
 import { GuitarHandAnimation } from './guitarHandAnimation.ts'
 import { IMMERSED_DOUBLE_NOD_MOTIF_ID } from './guitarMotifs.ts'
 import { GUITAR_SOFT_CLOSE_TEMPLATE_ID } from './guitarPerformance.ts'
 import { ModelMouseInput } from './modelMouseInput.ts'
-import { MIKUCAT_GUITAR_OWNED_PARAMETERS, ModelParameterOwnership } from './modelParameterOwnership.ts'
+import { MIKUCAT_ANGRY_OWNED_PARAMETERS, MIKUCAT_GUITAR_OWNED_PARAMETERS, MIKUCAT_LEEK_HAND_CHANNELS, MIKUCAT_NORMAL_LEFT_HAND_CHANNELS, ModelParameterOwnership } from './modelParameterOwnership.ts'
 
 // Exercise the real host wrapper; only native IPC, asset loading and WebGL are replaced.
 function fixture() {
@@ -47,7 +49,12 @@ function fixture() {
     getParameterValueRangeById(id: string) {
       if (['Param18', 'Param16', 'Param17', 'Param19'].includes(id)) return { min: -1, max: 1 }
       if (['ParamMouseLeftDown', 'ParamMouseRightDown'].includes(id)) return { min: 0, max: 1 }
-      return (MIKUCAT_GUITAR_OWNED_PARAMETERS as readonly string[]).includes(id) ? { min: -30, max: 30 } : null
+      const animationParameters = [
+        ...MIKUCAT_GUITAR_OWNED_PARAMETERS,
+        ...MIKUCAT_ANGRY_OWNED_PARAMETERS,
+      ] as readonly string[]
+      if (animationParameters.includes(id)) return { min: -30, max: 30 }
+      return null
     }
 
     destroy() { }
@@ -79,9 +86,11 @@ function fixture() {
       } },
     },
     '@/locales': { i18n: { global: { t: (key: string) => key } } },
+    './angryAnimation': { AngryAnimation },
     './guitarHandAnimation': { GuitarHandAnimation },
     './modelMouseInput': { ModelMouseInput },
     './modelParameterOwnership': {
+      MIKUCAT_ANGRY_OWNED_PARAMETERS,
       MIKUCAT_GUITAR_OWNED_PARAMETERS,
       ModelParameterOwnership,
     },
@@ -101,12 +110,15 @@ function fixture() {
   const host = exports.default as {
     load: (path: string, presetKey?: string) => Promise<unknown>
     setExpression: (index: number) => void
+    setAngryAnimationIntent: (intent: AngryAnimationIntent) => boolean
     setGuitarPerformanceIntent: (intent: GuitarPerformanceIntent) => boolean
     setGuitarPerformanceTemplateOverride: (templateId?: GuitarPerformanceTemplateId) => boolean
     setGuitarMotifPreview: (motifId?: GuitarMotifId) => boolean
     destroy: () => void
     readonly isGuitarPerforming: boolean
+    readonly isAngryAnimating: boolean
     readonly guitarPerformanceSnapshot: GuitarHandAnimation['snapshot']
+    readonly angryAnimationSnapshot: AngryAnimation['snapshot']
     mouseInput: ModelMouseInput
   }
   function advance(ms: number) {
@@ -116,6 +128,72 @@ function fixture() {
   }
   return { host, advance, callbacks, parameters, parameterWrites }
 }
+
+it('runs the restrained angry animation only for the built-in MikuCat expression', async () => {
+  const { host, advance, callbacks, parameterWrites } = fixture()
+  await host.load('model', 'mikucat')
+
+  host.setExpression(2)
+  advance(ANGRY_ANIMATION.enterMs)
+
+  assert.equal(host.isAngryAnimating, true)
+  assert.equal(host.angryAnimationSnapshot.phase, 'playing')
+  assert.equal(host.angryAnimationSnapshot.intensity, 'annoyed')
+  assert.equal(callbacks.size, 1)
+
+  host.setExpression(0)
+  advance(ANGRY_ANIMATION.exitMs)
+
+  assert.equal(host.isAngryAnimating, false)
+  assert.equal(callbacks.size, 0)
+  const released = parameterWrites
+    .filter(([, , weight]) => weight === 0)
+    .map(([id]) => id)
+  assert.deepEqual([...new Set(released)].sort(), [...MIKUCAT_ANGRY_OWNED_PARAMETERS].sort())
+
+  await host.load('model', 'standard')
+  host.setExpression(2)
+  assert.equal(host.isAngryAnimating, false)
+  assert.equal(callbacks.size, 0)
+})
+
+it('forwards the selected angry intensity and its leek-hand gesture into the next isolated angry entry', async () => {
+  const { host, advance, parameters } = fixture()
+  await host.load('model', 'mikucat')
+
+  assert.equal(host.setAngryAnimationIntent({ intensity: 'impatient' }), true)
+  host.setExpression(2)
+  advance(ANGRY_ANIMATION.enterMs)
+
+  assert.equal(host.angryAnimationSnapshot.intensity, 'impatient')
+  assert.deepEqual(host.angryAnimationSnapshot.requestedIntent, { intensity: 'impatient' })
+
+  advance(1250)
+  assert.ok(Math.hypot(host.angryAnimationSnapshot.leekHand.x, host.angryAnimationSnapshot.leekHand.y) >= 12)
+  assert.equal(parameters.get(MIKUCAT_LEEK_HAND_CHANNELS.x), host.angryAnimationSnapshot.leekHand.x)
+  assert.equal(parameters.get(MIKUCAT_LEEK_HAND_CHANNELS.y), host.angryAnimationSnapshot.leekHand.y)
+  assert.equal(parameters.has('Param23'), false)
+  assert.equal(parameters.has('Param24'), false)
+  assert.equal(parameters.get(MIKUCAT_NORMAL_LEFT_HAND_CHANNELS.x), host.angryAnimationSnapshot.normalLeftHand.x)
+  assert.equal(parameters.get(MIKUCAT_NORMAL_LEFT_HAND_CHANNELS.y), host.angryAnimationSnapshot.normalLeftHand.y)
+})
+
+it('forwards the grounded furious flurry into the same angry player without adding another ticker', async () => {
+  const { host, advance, callbacks, parameters } = fixture()
+  await host.load('model', 'mikucat')
+
+  assert.equal(host.setAngryAnimationIntent({ intensity: 'furious' }), true)
+  host.setExpression(2)
+  advance(ANGRY_ANIMATION.enterMs + ANGRY_ANIMATION.furiousLoopMs * 0.64)
+
+  assert.equal(callbacks.size, 1)
+  assert.equal(host.angryAnimationSnapshot.intensity, 'furious')
+  assert.ok(host.angryAnimationSnapshot.body.y < 0)
+  assert.ok(Math.hypot(host.angryAnimationSnapshot.leekHand.x, host.angryAnimationSnapshot.leekHand.y) >= 25)
+  for (const id of ['Param36', 'Param37', 'Param38', 'Param39', 'Param40', 'Param41']) {
+    assert.equal(parameters.has(id), false)
+  }
+})
 
 it('forwards a presentation profile into the existing guitar player', async () => {
   const { host, advance, callbacks } = fixture()
