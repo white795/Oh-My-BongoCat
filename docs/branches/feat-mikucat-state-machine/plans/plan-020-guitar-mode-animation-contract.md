@@ -1,7 +1,7 @@
 # Plan 020: Character / Guitar / Angry State Machines
 
-- Status: active
-- Summary: pending
+- Status: completed（状态契约、正式消费接线与 Plan 029 联合主窗口回归已完成）
+- Summary: [Summary 020](../summaries/summary-020-guitar-mode-animation-contract.md)
 - Branch: `feat/mikucat-state-machine`
 - Depends on: [Plan 018](plan-018-mikucat-guitar-performance.md), [Plan 019](plan-019-mikucat-guitar-notes.md)
 
@@ -33,7 +33,7 @@
 Agent hooks -> AmbientSnapshot.sessions -> Character State Machine
                                            RELAXED | GUITAR | ANGRY
                                                        │ mode + generation
-Normalized keyboard / mouse press ─────────────────────┤
+Normalized keyboard press ─────────────────────────────┤
 Monotonic time ─────────────────────────────────────────┤
                                                        ▼
                                           active mode child state machine
@@ -43,6 +43,8 @@ Monotonic time ─────────────────────�
                                         presentation layer（动画机支线）
                                      animation + effects, Live2D + DOM
 ```
+
+当前演奏输入只接键盘 press edge；鼠标坐标供手动态与动画退出目标使用，不触发吉他输入意图。
 
 状态机一次归约产出的快照与提示必须自足：表现层不需要回读状态机内部结构、不需要自行判断
 静默时长或输入密度，也不需要访问原始输入。状态机可以暴露调试快照，但表现层的内部播放状态
@@ -194,7 +196,8 @@ Agent 接管时从前端本地观察到 `ANGRY` 的时刻计时，不为历史�
 - `press` 提示携带当前 `activity` 与 `burst`，供表现层即时选择符号形态；
 - `accent` 提示独立于 `press` 发出，表现层不需要从按键间隔反推重音；
 - `input-rest` 提示只在停键达到休止条件后发出一次，表现层不重新判断静默时长；
-- 输入密度分级由状态机以离散档位表达，不要求表现层从 `activity` 反算按键次数；
+- 演奏强度由快照的 `interaction` 四档表达，`press` 携带连续的 `activity / burst`；表现层可以将
+  归一化值映射为视觉密度，但不重建输入窗口或反算按键次数；
 - 生命周期变化通过持续快照表达，表现层不通过动画机内部 phase 判断吉他模式是否启用。
 
 Plan 019 的音符原型整体移交表现层支线，本分支不再演进 `GuitarNoteEffect` / `GuitarNoteLayer`。
@@ -210,7 +213,7 @@ Plan 019 的音符原型整体移交表现层支线，本分支不再演进 `Gui
 继续保留在特效机、由表现层支线接管的视觉策略：十一种符号、十组调色板、七类轨迹、70 ms 视觉
 节流、最多 6 个并发、820 ms 生命周期，以及退出、换模和卸载时的统一清理。
 
-当前页面通过 `live2d.isGuitarPerforming` 决定是否生成音符，属于原型耦合。迁移后，吉他模式的
+迁移前页面通过 `live2d.isGuitarPerforming` 决定是否生成音符，属于原型耦合。迁移后，吉他模式的
 启用/退出事件先进入状态机，再由同一 lifecycle snapshot 同时驱动动画机和特效机；动画机内部
 phase 不再是特效机的语义真相源。
 
@@ -220,7 +223,7 @@ phase 不再是特效机的语义真相源。
 - 复用现有 AmbientReducer 的多 Session 快照，不修改 WSL hook、adapter 或 named pipe payload。
 - 将 snapshot 明确发布给主窗口，并分离氛围灯显示开关与模型接管开关的消费者生命周期。
 - 定义状态机输出给表现层的持续快照与瞬时提示契约。
-- 将当前 3 秒输入窗口、十六分音符增密和 1 秒停键休止作为状态机行为基线。
+- 将当前 3 秒输入窗口、归一化活跃度和 1 秒停键休止作为状态机行为基线；音符增密属于表现层映射。
 - 构建吉他与生气等待纯状态机；状态机拥有输入休止和等待升级的语义时间与 deadline。
 - 把角色模式接入主窗口：只有内置 MikuCat 可被接管，手动 Expression / Motion 在中央入口仲裁。
 - 通过纯逻辑测试验证状态归约、迟滞、释放、等待升级、事件去重与模式切换清理。
@@ -257,8 +260,11 @@ phase 不再是特效机的语义真相源。
        lifecycle 清理，不自行判断休止、输入密度或生气强度，也不依赖表现层 phase。
 10. [x] 以纯逻辑测试覆盖父级在 `RELAXED / GUITAR / ANGRY` 间切换、旧 deadline 淘汰、漏唤醒以及
         持续快照和瞬时提示的统一转发；冻结交给表现层支线的公共契约。
-11. [ ] 完成本分支全部状态机的定向测试、静态检查与主窗口回归验证；动画、特效、Plan 019 语义
+11. [x] 完成本分支全部状态机的定向测试、静态检查与主窗口回归验证；动画、特效、Plan 019 语义
         删除及视觉验收全部由表现层支线负责。
+    - 状态与表现支线已在 [Plan 029](plan-029-mikucat-state-presentation-integration.md) 合入，
+      统一页面接线、原型移除、目标连接测试和静态检查完成；2026-10-09 用户确认 Windows
+      联合 dev 回归通过，完成本计划的最终关闭条件。
 
 ## Acceptance
 
@@ -298,8 +304,8 @@ phase 不再是特效机的语义真相源。
 输出自足性（Effect Migration Boundary）：
 
 - `press` 提示携带当前 `activity` 与 `burst`，表现层无需回读状态机内部结构即可选择符号形态。
-- 输入密度以离散档位表达，表现为快照或提示上的明确字段，不要求表现层从 `activity` 反算按键
-  次数。
+- 快照提供明确的 `interaction` 四档；`press` 提供归一化 `activity / burst`，没有独立的音符密度
+  字段。表现层只作视觉映射，不反算按键次数或自行维护输入历史。
 - `input-rest` 只在状态机判定静默后发出一次，表现层不重新判断静默时长。
 - 吉他模式是否启用由生命周期快照表达，表现层不需要读取动画机内部 phase。
 - 本分支自身不再定义第二份 3 秒窗口、1 秒休止或密度阈值：`GUITAR_INTERACTION` 是这些语义的
@@ -318,8 +324,8 @@ phase 不再是特效机的语义真相源。
 
 ## Risks / Dependencies
 
-- 当前 Rust runtime 只有一个 `enabled`，关闭时会清空 reducer，并且只向 `ambient` 窗口发布快照；
-  接入主窗口前必须拆开“是否接收”和“哪个消费者显示/接管”，不能直接复用当前开关语义。
+- 实施前 Rust runtime 只有一个 `enabled`，关闭时会清空 reducer，并且只向 `ambient` 窗口发布快照；
+  任务 2 已将接收生命周期与两个消费者拆开，不能回退到单一开关语义。
 - 主窗口现有 `SET_EXPRESSION` / `START_MOTION` 直接写 Live2D；只禁用偏好页按钮无法形成所有权边界，
   快捷键和程序事件仍可能绕过。
 - 动画机支线已在独立 worktree 的 `feat/mikucat-v2-animation-engine` 上开发，动画与特效全部由该
@@ -336,6 +342,8 @@ phase 不再是特效机的语义真相源。
 - Windows dev 和构建继续由用户在 `D:\VibeTool\BongoCat` 执行，本计划不替用户构建或写入 Git。
 
 ## Verification
+
+以下保留各独立阶段当时的验证记录；当前正式接线与最终结果见 Summary 020 和 Plan 029。
 
 父级角色归约器已按 Red-Green-Refactor 建立：首次测试因模块不存在失败；最小实现首次运行暴露
 内部缓存形状错误并由测试捕获，修正后 5 个行为测试通过。当前仅实现纯逻辑层，尚未接入 Rust
@@ -396,3 +404,9 @@ cue 与 `nextDeadlineAt`。6 项测试覆盖父级在 `GUITAR / ANGRY / RELAXED 
 旧释放 timer、400 ms releasing 后继续预约 1 秒休止，以及模式切换和 dispose 后取消 timer；即使
 保留并手工调用旧 callback，也会被 token 与 generation 拒绝。协调器仍不判断输入密度或生气强度，
 只根据子状态机返回的绝对 `nextDeadlineAt` 维护至多一个 timer，并通过 `onUpdate` 发布自动推进结果。
+
+Plan 029 已恢复正式消费接线：主窗口的 Controller、Coordinator 与 PresentationConsumer 使用
+唯一的 `CharacterStateUpdate`，状态与特效注入同一单调时钟；页面不再维护休止 timer 或依赖
+动画 phase 判断输入。真实模块到宿主及页面 setup 的连接测试通过，模式交接、完成动作与特效
+仍由表现层拥有。2026-10-09 用户完成 Plan 029 的 Windows 联合 dev 验收，Plan 020 的最终主窗口
+回归至此关闭；此前各阶段“尚未接线”的记录是当时的历史状态，不再代表当前生产路径。

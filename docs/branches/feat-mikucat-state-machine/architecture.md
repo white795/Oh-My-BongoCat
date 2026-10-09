@@ -65,8 +65,10 @@ MikuCat 素材分成两层，不能把编辑源文件等同于运行时资源：
 可见性和备份策略另行决定，但不得进入安装包。素材目录内的专有许可证优先于仓库根目录 MIT
 许可证，且必须随被分发的运行时资源一起保留。
 
-当前素材来源为 `mikucat-lived2d`（用户将新版 `test-2` 重命名为此目录），运行副本仍位于
-`src-tauri/assets/models/mikucat`。同名 Windows 源目录也已更新为新版，不再是旧导出；不要按
+当前运行副本位于 `src-tauri/assets/models/mikucat`，Plan 029 已合入表现分支验收的 V2 moc3、
+display info 与 physics，补齐独立头身、耳朵、双手和吉他通道；设计源 `mikucat-lived2d-v2` 仍被
+Git 忽略。以下 Plan 015–019 的素材与原型说明保留为历史：原素材来源为 `mikucat-lived2d`
+（用户将新版 `test-2` 重命名为此目录）。同名 Windows 源目录也已更新为新版，不再是旧导出；不要按
 历史基线记录将它当成旧素材删除。`mikucat/` 是独立的拆分原画，保留为设计源而非重复模型。
 新版源目录已补齐封面、许可证和语义名称，可以独立导入。
 内置 model3 使用可读的表情 Name（默认、豆豆、生气、吉他），引用 `expressions/` 中稳定的英文
@@ -189,18 +191,49 @@ token 与 generation 校验，避免迟到工作复活已经退出的模式。ti
 [Plan 020](plans/plan-020-guitar-mode-animation-contract.md)。该计划先构建父级角色归约与主窗口控制权，
 再向下构建吉他与生气等待状态机；动画机与特效机的实现和接线由表现层支线承接。
 
-当前开发职责按 worktree 隔离：`feat/mikucat-state-machine` 只负责父子状态机、控制权、语义时间与
+合并前的开发职责按 worktree 隔离：`feat/mikucat-state-machine` 只负责父子状态机、控制权、语义时间与
 公共输出契约；`feat/mikucat-v2-animation-engine` 作为表现层支线，同时负责两个同级消费者——
 Live2D 动画机与模型外特效机——及其运行时接线。两侧只通过 Plan 020 的持续快照、瞬时提示和
 deadline 契约对接；代码层唯一入口是 `characterStateCoordinator.ts` 导出的 `CharacterStateUpdate`，
 表现层不得分别直连父级或任一子状态机。状态机 worktree 不继续拆分或改进特效机，也不修改动画机
-内部实现；当前暂停等待表现层完成，恢复后只做消费接线、回归验证和 merge 收尾。
+内部实现。上述分工是合并前的 worktree 边界；Plan 029 已统一接线并完成联合 Windows dev 验收，
+集成结果由目标工作树的 [Summary 029](summaries/summary-029-mikucat-state-presentation-integration.md) 记录。
+
+## Integrated Presentation Runtime
+
+Plan 029 将两侧实现整合为唯一的主窗口生产路径：
+
+```text
+Ambient snapshot -> CharacterPresentationController
+                                      |
+Keyboard press / semantic deadline -> CharacterStateCoordinator
+                                      | CharacterStateUpdate
+                                      v
+                          MikuCatPresentationConsumer
+                             |                  |
+                             v                  v
+                  Live2D animation hosts   Guitar / Angry effects
+                  + completion gesture     -> read-only Vue layers
+```
+
+- Controller 负责能力、接管开关与手动仲裁；Coordinator 缓存父级归约结果并激活唯一子状态，
+  不另行推导父级模式。每次 transition 都被转发，包括 mode 未变化但带 cue 的更新。
+- Coordinator 与消费者使用同一 `performance.now()`；状态侧只按语义 deadline 唤醒，特效侧
+  只按 TTL / cadence 唤醒，两侧各维护至多一个 timer，不再使用页面休止或逐音符 timer。
+- 表现层拥有目标模式与实际入场之间的动画小状态机、安全边界和参数交还。实际入场通知只
+  用于消费者内部延迟显示目标特效，不反向定义父子语义；旧 generation 的视觉实例立即清理。
+- Agent 关闭后手动请求立即恢复可用，鼠标在退出动画完成后交还，避免退出时有两个参数写入者。
+  手动 Expression 预览仍可播放对应动画，但不虚构 Agent 子状态或运行输入联动特效。
+- 换模先交还旧控制权，再加载模型并从最新缓存快照接管；卸载取消监听及两类 timer、退订
+  实际入场通知，并销毁 Live2D。异步加载晚于卸载完成时也销毁晚到资源。
+- 开发态动画预览只在手动所有权下开放；生气特效调试只读统一消费者，不另建生命周期。
+  `CharacterPresentationAdapter` 仅保留历史模块/测试，已无生产调用方。
 
 ## Stage 2 Boundary: Agent State Integration
 
-模型可用与实际动画继续分开验收：吉他脸部与输入解耦已通过，手部演奏动画机正在独立验收；已有
-四个 Expression 不代表完整动画已验收。第二阶段已从纯角色归约器开始实施，继续复用现有 ambient
-事件源和 Rust reducer，让主 Live2D 窗口成为新的接收方，而不是增加另一套 hook 或状态服务：
+模型可用、独立动画与最终状态接线分阶段验收，不以拥有四个 Expression 代替动画验收。
+第二阶段已由 Plan 029 完成联合 Windows dev 验收；继续复用现有 ambient 事件源和 Rust reducer，
+让主 Live2D 窗口成为新的接收方，不增加另一套 hook 或状态服务：
 
 ```text
 Codex / Claude hooks
@@ -214,18 +247,16 @@ Codex / Claude hooks
 多 Session 到单角色固定按“任一 waiting -> angry；否则任一 working -> guitar；否则 relaxed”归约。
 `done` 不形成稳定角色模式，归入 relaxed；最后一个活跃 Session 完成时，角色归约器另行发出一次
 带 ambient sequence 和 presentation generation 的 `ALL_SESSIONS_DONE` cue。这个 cue 与既有屏幕
-边缘完成提示并行，专供角色动画机消费；当前已实现并测试语义边沿，但尚未接入豆豆动画。Rust
+边缘完成提示并行，专供角色动画机消费；Plan 029 已将该语义边沿接入豆豆完成动画。Rust
 runtime 已拆成 indicator / presentation 两个独立消费者：任一开启
 都维持同一个 reducer，snapshot 分别定向发布给氛围窗口和主窗口，只有 indicator 驱动边缘提示；
 两者全关才清空 Session；Windows dev 已确认该拆分无异常。持久化接管字段与 command 默认关闭。
 主窗口 Presentation Controller 已接入：监听建立后先恢复 snapshot，只有内置 MikuCat 可以获得
 Agent 所有权，接管期间在中央入口拒绝手动 Expression / Motion，换模或关闭开关立即交还控制。
-通用设置已增加默认关闭的“Agent 接管模型”开关。薄表现适配器按内置 model3 的语义文件路径映射
-`RELAXED / GUITAR / ANGRY`，只接受递增 generation；目标尚未加载时不消费 generation。
-`GUITAR` 和 `ANGRY` 锁定鼠标写入，`RELAXED` 或交还手动控制恢复默认表情和鼠标。该适配层只提供
-确定性的父级基线，不把豆豆设为稳定状态；父级只提供一次性完成 cue，其默认/豆豆/默认的时序和
-新工作到来时的抢占由独立动画机 worktree 承担。
-外部特效尚未接入。
+通用设置已增加默认关闭的“Agent 接管模型”开关。最初的薄适配器已由统一消费者替代，
+Live2D 仍按内置 model3 的语义文件路径解析表情，不硬编码索引。`GUITAR` 和 `ANGRY` 锁定鼠标写入；
+`RELAXED` 或交还手动控制请求退出并恢复默认表情，鼠标在参数交接结束后恢复。豆豆不是稳定态，
+只由完成 cue 请求一次性动画，并允许新工作/等待抢占。两套外部特效已接入，联合实机验收见 Plan 029。
 
 ## Compatibility and Release Boundary
 

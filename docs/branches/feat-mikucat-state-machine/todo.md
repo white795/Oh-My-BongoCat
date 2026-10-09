@@ -2,63 +2,30 @@
 
 ## Current Focus
 
-当前位于 `feat/mikucat-state-machine`。用户已确认 Plan 013 的素材呈现效果可用，同时明确
-模型可用与动画表现应分开验收。Plan 014 的第四个内置模型保持不变；Plan 015 已将
-素材来源切换为新导出（原 test-2，现已重命名为 `mikucat-lived2d`），更新 Windows 运行副本并
-移除已无必要的鼠标 Y 别名兼容。Windows 旧导入副本和旧源文件已完成一次性清理。
-用户已确认 Plan 016 的吉他默认脸与鼠标解耦符合预期，但 Plan 017 固定循环的视觉验收未通过。
-当前 Plan 018 将其替换为手部演奏动画机：动作片段、乐句、强弱编排与连续过渡。
-用户已确认整句 AngleX/Y 轨迹的幅度和流畅度明显改善，最新要求是重音更短促、其余时段不要持续扭动。
-本轮重编头身曲线的动静层次：轻奏/放松停稳或微动，常奏分轻缓与活跃乐句，重音快速下压后慢收。
-只改头身数据，保留参数幅度上限、手部动作、选句调度和现有素材，不做整模画布变换。
-Plan 019 已在吉他表情中接入去重后的键盘按下信号，作为特效机的首个视觉原型；用户确认首版
-音符观感很好，本轮在不改变
-70 ms 节流、最多 6 个和 820 ms 生命周期的前提下扩为十一种 SVG：8 种基础谱面符号随机且不
-连续重复，3 秒滚动输入量分级提高十六分音符占比，停键 1 秒从两种休止符中选取一次并重置乐句；
-颜色扩为 10 组不连续重复的双色方案，轨迹仅使用右上、右下、左下和近水平向右，排除左上穿脸。
-用户已确认扩充后的符号、配色、高光和三象限轨迹观感非常满意；Plan 019 仍保留完整退出清理等
-验收项，未在本轮提前关闭。当前 `GuitarNoteEffect` 同时保存输入语义和视觉实例，页面还维护休止
-计时并依赖动画 phase；这些是为了快速验证留下的已知耦合，不作为最终架构。
-Plan 020 现采用分层状态机：父级读取现有 Agent 多 Session 快照，以
-`WAITING > WORKING > RELAXED` 归约 `ANGRY | GUITAR | RELAXED`；`GUITAR` 激活键盘交互状态机，
-`ANGRY` 激活纯等待计时状态机，`RELAXED` 不需要子状态。子状态机只发送持续状态、瞬时提示与
-deadline；动画机与特效机是同级消费者，但两者的实现、接线与 Plan 019 语义拆分全部由表现层支线
-承担；无输入显式归约为 `AUTONOMOUS`。现有 hook、bridge、named pipe 和 Rust Session reducer
-保持不变。
-父级纯 TypeScript 归约器及 9 个行为测试已完成。第二层已把 Rust runtime 拆为 indicator 与
-presentation 两个消费者，新增默认关闭的持久化接管字段和 command，并将 presentation snapshot
-定向发布给主窗口；5 个源文件已增量同步，Windows dev 已由用户确认无异常。第三层 Presentation
-Controller 已完成纯逻辑与主窗口接线：先恢复 snapshot 再接管，只有内置 MikuCat 支持接管，现有
-手动 Expression / Motion 在中央入口统一仲裁，换模或关闭开关会立即交还；Windows dev 已确认
-依赖补齐后编译恢复正常。第四层父级表现适配已通过 Windows dev 视觉验收：新增设置开关，按语义
-文件映射默认/生气/吉他，generation 去重，WORK/WAIT 锁定鼠标，RELAXED/手动交还恢复鼠标。
-父级另已补齐一次性的 `ALL_SESSIONS_DONE` cue：只有同一 Session 从 WORK/WAIT 真实进入 DONE 且
-所有 Session 均为 DONE 时触发；移除、重复快照、重连和延迟接管不重放。豆豆只作为该 cue 的
-未来完成动画，不成为稳定角色状态。父级角色状态机已形成最小端到端闭环。动画机在独立 worktree
-`feat/mikucat-v2-animation-engine` 开发，本 worktree 不修改其文件。吉他子状态机的纯逻辑层也已
-完成：lifecycle、interaction 与 releasing 正交，持续 activity、600 ms burst、迟滞、ACCENT 冷却、
-400 ms 释放、1 秒单次休止及 generation 淘汰旧任务均由 `GuitarInteractionMachine` 统一归约。
-`AngryWaitingMachine` 也已完成纯逻辑：进入为 ANNOYED，连续 8 秒和 25 秒升级到 IMPATIENT、
-FURIOUS；升级 cue 单次发送，漏唤醒直接收敛最终强度，同 generation 不重置，退出后旧 deadline
-失效。`CharacterStateCoordinator` 已将父级与两个子状态机连接为统一输出：同时只保留一个活跃
-子状态，按来源转发 cue，并只暴露当前子状态的 `nextDeadlineAt`。可选 deadline runtime 依照该值
-自持至多一个单次 timer，模式切换、销毁和新 deadline 会取消或替换旧 timer，迟到回调不会复活旧
-状态。当前尚未接入动画机或特效机。脸部和头发素材暂不改。
+`feat/mikucat-state-machine` 已整合表现分支 `feat/mikucat-v2-animation-engine`（`cac39b6`），
+状态基线为 `5a8d4a4`。源码与 Windows 联合 dev 验收完成，结果见
+[Summary 029](summaries/summary-029-mikucat-state-presentation-integration.md)；来源分支历史保留。
 
-分支职责已经重新划分：本 worktree 只继续父子状态、语义时间、deadline 与公共输出契约；动画机
-和特效机仍为同级消费者，但它们的实现、Plan 019 特效拆分和后续改进统一由
-`feat/mikucat-v2-animation-engine` 表现层支线承担。
+三个冲突文件已按两侧职责整合：主窗口保留 Ambient 监听、缓存恢复、接管开关与手动仲裁；
+Live2D 保留 V2 参数所有权、安全升级、latest-wins 交接与豆豆完成动画。主窗口现使用
+Controller -> Coordinator -> `CharacterStateUpdate` -> PresentationConsumer 的唯一生产链路，
+按键和语义 deadline 都走该链路；两套特效层只渲染消费者快照。旧 `GuitarNoteEffect` POC、
+页面休止 timer、逐音符 timer 和独立生气特效预览生命周期已移除，语义与特效共用
+`performance.now()`，各自维护至多一个 deadline timer。
 
-本分支现进入暂停状态：`CharacterStateUpdate` 已冻结为表现层唯一消费入口，父级、吉他、生气与
-deadline 不再分别对外接线。状态侧暂无新的开发任务，等待表现层分支完成动画机和特效机后再恢复，
-届时只进行契约接线、冲突处理、Windows dev 回归与 merge 收尾。
+连接测试覆盖真实宿主、输入休止、8 秒/25 秒等待升级、重复 hook、旧 generation、
+完成去重/抢占、手动交还、模型替换及页面卸载。2026-10-09 用户确认联合 dev 全部通过，
+包括退出及重启后的真实 hook 联动，Plan 019/020/029 已闭环。
+冲突已清理、解决结果已由用户暂存；最新收尾文档尚需暂存，Git merge 仍待用户提交。
 
 ## Active Plan
 
-- [Plan 020](plans/plan-020-guitar-mode-animation-contract.md)（active，父级归约器与双消费者 runtime
-  已验证，两个子状态机、连接器、deadline 调度与标准输出契约已完成；paused，等待表现层消费）
-- [Plan 019](plans/plan-019-mikucat-guitar-notes.md)（active，视觉已通过 dev 验收；输入语义拆分与
-  退出清理验收一并移交表现层支线，本支线不再演进）
+暂无新的实施计划。当前只待用户完成本次合并提交；安装包发布或进一步调参另行确认。
+
+## Earlier Stage Records
+
+以下保留原阶段开放记录，不据本轮 V2 联合验收追认其所有历史检查，也不作为本次合并提交阻塞：
+
 - [Plan 018](plans/plan-018-mikucat-guitar-performance.md)（active，重音提速与动静对比试调已同步；
   动画机实现与后续 dev 视觉验收移交表现层支线）
 - [Plan 015](plans/plan-015-mikucat-test2-assets.md)（active，素材迁移与兼容移除已同步，待 dev 验收）
@@ -67,14 +34,27 @@ deadline 不再分别对外接线。状态侧暂无新的开发任务，等待�
 
 ## Next Action
 
-暂无本分支内的主动开发任务。等待 `feat/mikucat-v2-animation-engine` 完成动画机与特效机；恢复后
-由表现层统一消费 `CharacterStateUpdate`，不分别直连父级或子状态机。完成接线后再执行 Plan 020
-任务 11 的定向测试、冲突处理和 Windows dev 回归，并据此决定 merge。本分支不拆
-`GuitarNoteEffect`、不删除 Plan 019 视觉实现，也不提前实现豆豆完成动画。
+在当前 WSL 目标仓库暂存 `docs/branches/feat-mikucat-state-machine/` 的最新文档，检查完整索引，
+由用户完成已经发起的 merge 提交，不再次执行 merge。功能源码未随本次文档收尾改变，
+无需重新同步运行文件或重复编译。
 
-Plan 018 仍需在动画机支线继续观察轻奏停稳、常奏动静变化、重音下压和头手衔接；Plan 019 尚需
-补齐切回普通表情、切换模型及卸载后不残留的完整生命周期验收。此前 Plan 014 / 015 未逐项确认
-的记录继续保留，不将本轮文档调整当作其已经通过。
+提交后核对工作区；若另行准备安装包，仍由用户在 `D:\VibeTool\BongoCat` 构建并验收安装版，
+不把已经通过的 dev 验收当作安装版验收。
+
+## Earlier Verification Records
+
+Plan 029 当前源码检查：33 个 utils 测试文件通过；真实宿主 29 项和页面 setup 3 项连接测试
+通过，TypeScript、合并范围 ESLint、Vite 生产构建与工作区差异检查通过。构建只有既有动态导入/
+大 chunk 警告。Windows 已增量同步并核对 85 个路径，旧文件备份位于
+`/tmp/bongocat-integration-sync.SYGd2B/before/`；dev 编译与人工验收由用户执行，助手未替用户
+暂存、提交或打包。
+
+2026-10-09 联合 dev 确认：默认显示、吉他自治/键盘/休止、真实等待三档/批准恢复、
+多会话优先级/最后完成、豆豆抢占、独立开关/手动交还、换模、退出及重启联动均无异常。
+Plan 019 的完整清理与 Plan 020 的主窗口回归已关闭，详细结果见 Summary 029。
+
+以下是各独立步骤当时的验证记录，其中“尚未接线/待实机”等描述不再代表当前集成路径。
+Plan 018 的早期曲线观察由 V2 表现支线接替；Plan 014/015 的原阶段记录仍保留，不作额外追认。
 
 本轮 15 项动画测试及定向 ESLint / TypeScript 检查通过；对比确认只改头身曲线，
 手部数据、调度及幅度上限不变。2 个 TS 文件已增量同步 Windows 并核对一致，差异检查通过。
@@ -150,12 +130,14 @@ deadline 调度的 4 项新增测试先因没有预约 timer 按预期失败；�
 
 ## Completed
 
+- [Plan 029](plans/plan-029-mikucat-state-presentation-integration.md)（completed，待用户 Git 合并提交） — [Summary 029](summaries/summary-029-mikucat-state-presentation-integration.md)
+- [Plan 020](plans/plan-020-guitar-mode-animation-contract.md)（completed） — [Summary 020](summaries/summary-020-guitar-mode-animation-contract.md)
+- [Plan 019](plans/plan-019-mikucat-guitar-notes.md)（completed） — [Summary 019](summaries/summary-019-mikucat-guitar-notes.md)
 - [Plan 016](plans/plan-016-mikucat-guitar-input.md)（completed） — [Summary 016](summaries/summary-016-mikucat-guitar-input.md)
 - [Plan 013](plans/plan-013-mikucat-runtime-assets.md)（completed） — [Summary 013](summaries/summary-013-mikucat-runtime-assets.md)
 
 ## Queued Plans
 
-- Plan 018 先验收手部演奏及整句头身联动；头发/独立身体通道是否升级留待观察，脸部动作及 WAIT、DONE、特效另行确认。
-- Agent 映射已进入 Plan 020 实施，但仍不把“状态归约通过”当作“动画与特效完成”。
+- 输入阈值、后续视觉调优或安装包发布不在本次收尾中实施，收到明确任务后再创建下一阶段计划。
 - relay 同来源多 payload 参数绑定风险：连续两天真实使用未复现，不阻塞当前发布；仅在出现
   真实故障或修改相关链路时建立修复计划。

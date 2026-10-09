@@ -1,14 +1,30 @@
-MikuCat Proprietary Asset License
+MikuCat Personal-Use Asset License
 
-Copyright (c) 2026. All rights reserved by the owner of these assets.
+Copyright (c) 2026 Heshui. All rights reserved.
 
-The artwork and related source files in this directory are proprietary assets.
-They are not covered by the MIT License at the root of this repository.
+The artwork, Live2D model files, textures, expressions, physics data, and
+related source files in this directory (the "Assets") are proprietary. They are
+not open-source or open-content assets, and they are not covered by the MIT
+License at the root of this repository.
 
-These assets may be included and used only as part of a build or distribution
-of BongoCat authorized by the asset owner. No permission is granted to extract,
-copy, modify, reuse, redistribute, sublicense, or sell these assets separately.
+Subject to this license, an individual may copy, modify, and use the Assets only
+as part of their own local copy of BongoCat for personal, non-commercial use.
+Every permitted copy must retain this license notice and the attribution
+"MikuCat assets (c) 2026 Heshui".
 
-This notice applies only to rights held by the owner in the commissioned artwork
-and related files. Any third-party characters, names, trademarks, or other rights
-remain the property of their respective owners.
+Without prior written permission from Heshui, you may not redistribute, publish,
+upload, sublicense, sell, rent, or otherwise make the Assets or modified versions
+of them available to another person. You may not use them in another project,
+product, service, asset pack, model, dataset, or training corpus.
+
+Commercial, organizational, promotional, commissioned, or otherwise monetized
+use is prohibited. Personal use does not include use on behalf of a business,
+employer, client, or other organization.
+
+This license applies only to rights held by Heshui in the commissioned artwork
+and related files. Any third-party characters, names, trademarks, or other
+rights remain the property of their respective owners. No additional rights are
+granted by implication, estoppel, or otherwise.
+
+THE ASSETS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW.

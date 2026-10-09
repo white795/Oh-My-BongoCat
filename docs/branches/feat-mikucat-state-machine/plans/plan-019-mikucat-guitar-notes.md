@@ -1,9 +1,18 @@
 # Plan 019: MikuCat Guitar Note Effect Prototype
 
-- Status: active
-- Summary: pending
+- Status: completed（视觉原型已迁入正式特效机，生命周期由 Plan 029 联合验收闭环）
+- Summary: [Summary 019](../summaries/summary-019-mikucat-guitar-notes.md)
 - Branch: `feat/mikucat-state-machine`
 - Depends on: [Plan 018](plan-018-mikucat-guitar-performance.md)
+
+## Current Migration Status
+
+[Plan 029](plan-029-mikucat-state-presentation-integration.md) 已将正式表现分支合入本工作树：
+`GuitarNoteEffect` 及原型测试已移除，输入/休止由状态协调器归约，音符由独立 `GuitarEffectEngine`
+生成并交给只读 Vue 层。页面休止、逐音符 timer 和动画 phase 门控不再存在；下面的原型实现与
+数值记录保留为历史基线，不代表当前模块位置。2026-10-09 用户完成 Plan 029 联合 dev 验收，
+确认关闭接管、切换模型、退出及重启后无残留；任务 6 至此关闭。正式路径只在 Agent 接管的
+GUITAR 生命周期内生成输入联动特效，手动吉他表情仍可预览动画。
 
 ## Goal
 
@@ -50,7 +59,7 @@ Plan 020 只固定状态语义与输出契约；实际拆分由 `feat/mikucat-v2
 3. [x] 增加独立音符渲染层和十一种双色内联 SVG，完成定向验证。
 4. [x] 增量同步 Windows 并核对内容一致。
 5. [x] 用户在 Tauri dev 中验收符号/颜色随机性、三象限轨迹、输入强度和停键休止的观感。
-6. [ ] 补齐切回普通表情、切换模型及页面卸载时不残留音符或计时器的生命周期验收记录。
+6. [x] 补齐切回普通表情、切换模型及页面卸载时不残留音符或计时器的生命周期验收记录。
 7. [x] 记录当前原型耦合，并将状态归约与特效播放的拆分移交 Plan 020。
 
 ## Acceptance
@@ -105,4 +114,5 @@ Plan 020 只固定状态语义与输出契约；实际拆分由 `feat/mikucat-v2
 - 本轮 3 个音符调度/渲染文件已增量同步 Windows 并核对 SHA-256；覆盖前备份为
   `/tmp/bongocat-guitar-note-variety.Za6qma`，尚未运行 Windows dev。
 - 用户随后已在 Windows dev 中确认扩充后的音符种类、双色高光、输入联动和三象限轨迹观感
-  满意；完整退出清理的验收记录仍待补齐，因此计划暂不关闭。
+  满意；当时尚待补齐的完整退出清理由 Plan 029 联合 dev 验收完成。当前正式状态到特效的
+  接线、单次休止、模式退出、换模及重启联动均已通过，详见本计划 Summary。

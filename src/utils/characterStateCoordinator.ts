@@ -60,8 +60,8 @@ export interface CharacterStateDeadlineRuntime {
 
 /**
  * Connects the parent presentation state to exactly one active mode child.
- * It routes semantic input and deadlines without scheduling timers or invoking
- * presentation consumers.
+ * It routes semantic input and deadlines without invoking presentation consumers.
+ * An optional runtime schedules one timer from the current semantic deadline.
  */
 export class CharacterStateCoordinator {
   private readonly guitar: GuitarInteractionMachine

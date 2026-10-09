@@ -1,0 +1,347 @@
+# Architecture — feat/mikucat-v2-animation-engine
+
+## Branch Baseline
+
+本支线从提交 `5c3191a` 分出，只负责 MikuCat V2 的运行素材与动画机。旧版四通道吉他动画的行为
+基线保存在 [Plan 018](../feat-mikucat-state-machine/plans/plan-018-mikucat-guitar-performance.md)，
+状态机与两个表现消费者的跨分支契约保存在
+[Plan 020](../feat-mikucat-state-machine/plans/plan-020-guitar-mode-animation-contract.md)。来源分支的
+计划保持原样；后续合并由目标分支新建 integration plan，不在本支线修改状态归约。经两条支线
+同步确认，状态机支线止于持续快照与瞬时提示；动画和模型外特效的实现、调试与后续优化均由本支线
+负责，但二者仍是互不调用的并列表现消费者。
+
+## Product Boundary
+
+本支线把已经验证的“手部 + 头部”吉他播放器升级为可独立控制头、身体、双耳、双手和吉他的
+多通道动画机。它负责连续姿态、速度、乐句、重音、安全切换点和 Live2D 参数所有权；不负责解释
+原始键盘输入，也不决定角色应当进入 `RELAXED | GUITAR | ANGRY` 中的哪一种状态。
+
+```text
+状态机持续快照 / 瞬时提示（未来接线）
+                    │
+                    ▼
+          Animation Consumer Port
+                    │
+                    ▼
+     phrase / timeline / safe-boundary arbitration
+                    │
+                    ▼
+        parameter ownership and writer
+                    │
+                    ▼
+                 Live2D
+```
+
+在状态机尚未合并时，动画机继续以内部 `AUTONOMOUS` 调度独立运行；输入意图接口只提供稳定消费端口，
+不能在动画机内重新实现输入密度、休止 deadline 或角色优先级。`AUTONOMOUS / ENGAGED / GROOVE /
+DRIVE` 不是四台播放器，而是同一时间轴上的四种演奏 Profile：当前姿态、速度、拍点和乐句进度
+始终属于动画机，状态变化只改变后续动作意图。
+
+## V2 Asset Boundary
+
+`mikucat-lived2d-v2/` 是用户提供的专有 Cubism 设计/导出源暂存目录，不是运行时打包目录。它必须
+保持未跟踪，并由目录内许可证声明权利边界；不得把 `.cmo3` 或其他设计源提交、复制进 Tauri
+资源或安装包。程序只接收整理后的最小运行资源，目标仍为 `src-tauri/assets/models/mikucat/`，
+且必须随附该素材许可证。
+
+当前只读审计已经确认：
+
+- 7 个 JSON 均可解析，`model3.json` 的引用可以闭合；MOC 与当前 Cubism Core 兼容；
+- MOC 版本为 4.0，包含 49 个参数、7 个 Part 和 35 个 Drawable，CDI 的 49 个参数全部对应；
+- 物理文件包含 10 个 rig、24 个输入、38 个输出和 28 个粒子顶点，计数和引用闭合；
+- 画布仍为 1058 × 1224，纹理内容与旧导出一致；本次升级的价值是新增独立变形通道；
+- 模型已实际验证以下参数能够驱动独立网格，而不只是存在于 CDI 描述中。
+
+2026-09-22 的 V2.1 重新导出已作为最新运行基线采用。它保持 49 个参数、7 个实际 Part、35 个
+Drawable 和既有纹理不变；Cubism Core 逐参数比较确认额外网格变化只涉及左右脚
+`ArtMesh48 / ArtMesh49` 及 `Param36..41`，物理变化也只位于腿部 `PhysicsSetting10`。原始 V2.1
+`model3` 含临时目录引用和 `angry ` 尾随空格，因此没有直接复制；运行目录继续使用规范化的中文
+表情清单和只含双眼参数的 `EyeBlink` 组。
+
+| 视觉通道  | 参数                         | 范围      |
+| --------- | ---------------------------- | --------- |
+| 头部      | `ParamAngleX`, `ParamAngleY` | `-30..30` |
+| 身体/衣服 | `Param14`, `Param15`         | `-30..30` |
+| 左耳      | `Param18`, `Param16`         | `-1..1`   |
+| 右耳      | `Param17`, `Param19`         | `-1..1`   |
+| 吉他左手  | `Param21`, `Param22`         | `-30..30` |
+| 吉他右手  | `Param23`, `Param24`         | `-30..30` |
+| 吉他      | `Param34`, `Param35`         | `-30..30` |
+
+表中左右手严格表示角色自身的解剖学方向，不表示画面左右。实机满幅探针确认本模型为左手拨弦：
+动画层使用 `strummingHand -> Param21/Param22`、`frettingHand -> Param23/Param24` 的角色映射，乐句
+数据不得再用含混的左右手名称表达演奏职责。
+
+运行资源接入时需要规范化，而不是原样复制暂存目录：保留四个表情的现有中文名称、顺序和稳定路径；
+消除 `angry .exp3.json` 及 `"angry "` 的尾随空格。v2.1 已确认 `EyeBlink` 只包含左右眼，双耳 physics
+改由 `ParamAngleX / ParamAngleY` 驱动，不再消费眨眼参数；运行资源选择性吸收这两项，不复制同批
+导出中无关的脚部调参和 CDI 分组变化。CDI 中不存在于 MOC 的 `Part/zimu` 只作为可选源清理，不是
+运行阻塞。
+V2.1 设计源只是本地迁移暂存，不进入运行资源或 Git；用户确认运行导出达到预期后会手动清理该目录。
+
+## Parameter Ownership
+
+动画期间，同一个 Live2D 参数只能有一个生产写入者。状态机、特效机、页面和鼠标映射只能请求
+动画意图，不得绕过动画机写头、身体、耳朵、手或吉他参数。
+
+当前 `easy-live2d` 的外部参数覆盖在物理更新后应用并持续保存。因而退出动画时写入一次 `0` 并不
+等于归还控制权，反而会让物理通道长期被零值覆盖。动画机必须提供明确的参数生命周期：
+
+```text
+acquire channels -> write weighted values each frame -> release channels
+```
+
+`release` 必须取消外部覆盖，使模型物理或鼠标映射重新成为有效来源；若底层 API 只能保留覆盖项，
+则扩展包装层传递 `weight = 0` 作为释放语义，并用测试验证退出后参数不再黏住。模型切换、表达式
+退出和组件卸载都必须走同一清理路径。
+
+V2 的鬓发、马尾、刘海和发带虽然在模型 physics 中消费 `ParamAngleX / ParamAngleY`，但
+`easy-live2d` 会在 physics 计算完成后才应用动画机的外部头部覆盖，因此吉他态会出现“头在动、
+头发看到的输入仍未动”。吉他动画期间由统一的 secondary-motion 层临时接管九个头发输出参数，
+只消费最终头部位置与速度并产生不同频率、阻尼和幅度的延迟回弹；乐句和 Motif 不得各自写头发
+关键帧。退出吉他时，这九个覆盖与其他动画通道一起释放，默认态仍交还模型原有 physics。
+
+## Angry Animation Boundary
+
+ANGRY 动画只消费状态机已经归约好的 durable intensity：`annoyed / impatient / furious`。8 秒、
+25 秒阈值、单调时间、generation 和 `anger-escalated` cue 均属于状态机，不得在动画分支复制。
+
+现有 `angry.exp3.json` 独占脸部语义，动画机不写 `Param9..13`。第一版 ANGRY 获取头、身体、
+双耳、持葱右手绑定的 `ParamMouseX/Y`、普通左手 `Param25/26`、九个头发输出和其余鼠标控制参数；
+不获取吉他双手 `Param21..24`、吉他或脚。该映射来自 moc3 核心差异检查：`ParamMouseX/Y`
+只改变 `dacong` 与相邻手部网格，`Param25/26` 只改变空着的普通左手，`ParamMouseRightDown` 不改变
+任何网格。`impatient` 中持葱手与两次催促同步挥动，普通左手只在主动作之后低幅跟随；`furious`
+以五秒内一段多方向连续乱舞和最终重砸表达受控爆发，身体保持向下承力，双脚始终交还模型 physics；
+`annoyed` 两手均保持中立。三个 intensity 必须共用一个
+ticker 和一套连续姿态播放器：档位变化更新后续动作意图，不在当前帧重启或跳零。头发次级运动
+应抽为 MikuCat 公共能力并由吉他与 ANGRY 共用，不能复制两套弹簧常量后分别漂移。
+
+模型动画和模型外特效仍为并列消费者：durable intensity 决定持续姿态，`anger-escalated` cue
+触发一次性模型外强调。动画机和特效机不得互相调用；两者只在最终 integration plan 中由同一
+`CharacterStateUpdate` 扇出。
+
+## Angry Effect Boundary
+
+ANGRY 模型外特效机已经作为独立表现消费者冻结。它接收与状态机结构兼容的 active/inactive durable
+snapshot 以及一次性 `anger-escalated` cue：snapshot 只决定当前强度与持续短乐句，cue 才播放升级
+burst。特效机不计算等待起点或 8 秒/25 秒阈值，不读取动画 phase，也不调用 `AngryAnimation`。
+
+特效机内部是 generation/revision/sequence、容量、TTL 和 cadence deadline 的唯一所有者。旧
+generation、重复 revision 和倒序 cue 必须被淘汰；长时间暂停后最多补发一次当前持续乐句，不追赶
+所有错过节拍。页面只按 `nextDeadlineAt` 维护一个 timer 并渲染只读快照，退出、切换模型和组件卸载
+均通过 inactive/deactivate 清空实例与 deadline。
+
+视觉语汇固定为弧形压力线、四圆弧怒气符号、手绘 X、蒸汽和热火花；`annoyed / impatient /
+furious` 通过密度与符号层级区分。空间布局只使用当前 MikuCat 构图下的 `crown / ear / face-side`
+三个受控舞台区，短乐句确定性轮换位置、轨迹、尺度与错峰时间，不进行逐实例完全随机。开发菜单只
+构造合法测试快照/cue；真实 `CharacterStateUpdate` 扇出仍留给目标分支 integration plan。
+
+## Animation Engine Boundary
+
+- 单一 ticker 推进所有通道，避免头、身体与手部因多个帧循环产生相位漂移或重复更新；
+- 状态机只归约语义状态和瞬时意图；默认循环、特定动作的通道抢占、混合、排队与恢复均由动画机
+  处理。Base / Gesture / Transition 最终必须经过同一个 channel mixer，每个参数每帧只有一个
+  最终写入值；
+- 乐句仍由可测试的数据描述，片段交接继承当前位置和速度，重音在安全边界合并而非重启动作；
+- 连续动作关键帧使用相邻姿态导出的切线穿过，不在每个关键帧把速度强制归零；只有相邻重复姿态
+  才表示编排者有意停稳，乐句端点则负责收势或交给下一乐句；
+- V2 编排允许拨弦手（解剖学左手）、吉他反向惯性、身体重心、头部点拍和耳朵反馈形成不同相位，
+  但必须来自同一时间轴；
+- 头发属于从最终头部姿态派生的次级运动，不属于乐句主时间轴上的动作槽位；它可以延迟和过冲，
+  但不能反向驱动头部，也不能因 Profile 或 Motif 切换重置；
+- 拨弦片段使用相对琴弦的局部坐标编排，再旋转到模型 X/Y。当前琴弦在屏幕中约沿 40° 方向，主
+  拨弦轴取其约 -50° 法线；不能重新用 `Param21` 的横向满幅扫描冒充拨弦；
+- 按弦手的局部主轴沿约 40° 琴颈方向映射，副轴表达压弦/释放；Profile 可以调整身体表现增益，
+  `DRIVE` 的高强度不能只靠加快 BPM 表达；
+- 素材把头、身体、吉他和双手导出为独立参数后，运行时必须补回视觉层级：最终头部姿态由局部
+  头部 Gesture 叠加身体 Base，双手最终姿态由各自局部 Gesture 叠加吉他 Base。局部轨迹不得直接
+  作为最终参数写入，否则身体与头会失相、琴身运动时手部接触点会漂移；
+- 演奏编排不再把“每个乐句独立随机”作为输入态的主调度方式。先建立可感知的稳定节奏，再按
+  `ESTABLISH → REPEAT → VARIATION → FILL / ACCENT / CADENCE` 的音乐职责组织动作；特色动作只能在
+  已经建立上下文后出现，不能仅靠概率与冷却拼成表演；
+- 第一次语法实验只实现一个四拍基础句 `steady-groove`（A）：`ENGAGED / GROOVE / DRIVE` 连续重复
+  同一个 A，禁用输入态 Motif 和逐句随机，只由 Profile 改变同一动作的 BPM、energy 与身体增益。
+  旧的双句左右点头数据保留为未来 Fill 素材，但在 A 的视觉基线通过前不参与播放；
+- A 的 Windows 视觉基线通过后，第二次实验固定为 `A → A → A′ → A`。A′ 前两拍保持 A 的节奏，
+  后两拍才加入提前换把、较密拨弦和稍强的整体回应；它与 A 共用入口、句尾姿态和切线。该实验只
+  验证“重复后有意变化并自然返回”，仍不接 cue、不抽取 Fill，也不恢复逐句随机；
+- A′ 的可辨识度和双向衔接通过后，第三次实验才把第四句替换为固定 Fill。Fill 只包含一次准备后的
+  强扫，随后让主要通道显式停稳，再用短 pickup 回到 A 的共享边界；它负责收束四句，而不是继续
+  加速或叠加第二个特色动作；
+- Fill 的重拍以纵向承力为主，不能通过全身左右拉扯制造强度。其编排约束为身体归一化 X 总行程
+  不超过 `0.55`、吉他 X 总行程不超过 `0.35`，重拍前按弦手沿单一方向准备；横向轨迹仍可承担
+  惯性，但不能反客为主。身体在重音前必须单向进入，琴体只允许一次短暂的入场惯性，随后与身体
+  同向落下重音；核心通道的显式重复姿态跨度不得超过乐句的 `0.08`，拨弦手完全休止不得超过
+  四分之一拍，双耳在主体停稳时继续提供微弱余韵，避免所有通道同时归零形成假卡顿。纵向重拍、
+  短停稳与句尾 pickup 不因这些约束被移除；
+- A 的通道因果顺序固定为“按弦手提前准备 → 拨弦手落拍 → 琴体回应 → 身体承力 → 头部回应 →
+  耳朵余韵”，句尾位置和速度必须能直接交给下一次 A。后续 A′、Fill 和输入 cue 也必须复用同一
+  时间轴与所有权规则，而不是创建另一套播放器；
+- 长时间吉他演奏必须同时包含近静止、轻缓、常奏和重音段，不以持续摇摆冒充复杂度；
+- `AUTONOMOUS` 暂时保留旧的可注入随机源和既有乐句变化，便于隔离比较；输入态的第一轮 A 基线不
+  消费随机源，直到有意设计的四句/八句语法通过验收后才恢复受结构约束的变化；
+- 未来顶层表现消费者采用“持续快照 latest-wins、瞬时提示 sequence 去重/冷却/合并”的契约；
+  吉他动画核心只在安全边界采纳 durable intent，瞬时提示由特效机优先消费。两个消费者不得互相
+  阻塞；
+- `ANGRY` 和 `RELAXED` 的新动作设计不在首个 V2 吉他升级中展开，但参数所有权和公共端口应允许
+  后续复用。
+
+## Performance Profile Boundary
+
+动画开发仍按三个关卡推进，不能为了提前演示状态切换而跨越动画自身的验收顺序：
+
+1. 先在同一播放器中分别强制运行 `AUTONOMOUS / ENGAGED / GROOVE / DRIVE`，逐个验收动作语言；
+2. 各 Profile 通过后，再实现持续 activity、`releasing`、安全边界采纳与跨 Profile 平滑衔接；
+3. 动画与特效核心分别通过后，才在 integration plan 中把两者接入同一状态总线并联合验收。
+
+特效机与动画机是并列消费者，因此不要求等待全部动作设计完成后才整理其内部实现。Plan 022 可以
+与动画动作设计并行抽取 cue 驱动的特效核心，但不得接入总线、读取动画 phase 或修改动画轨迹，也
+不得改变 Plan 021 的活动状态；动画验收仍按前两关继续，最终接线顺序不变。
+
+首个关卡允许通过仅开发态调试入口或主窗口右键菜单强制 Profile，但该入口不得自行统计按键或模拟状态机。即使在
+分离验收阶段，各 Profile 也必须共享相同的轨道、片段采样器和播放时钟；禁止先实现四套独立循环，
+再依赖交叉淡化掩盖跳帧。
+
+当前关卡进一步拆为可独立否决的视觉基线：四拍 A 连续重复已经通过稳定性、通道因果和句边界验收；
+`A → A → A′ → A` 也已通过受控变化与双向衔接验收。当前已实现
+`A → A → A′ → Fill`；多轮录像已依次消除 Fill 内部横向拉扯、反相重音和全通道长停顿，DRIVE 与
+ENGAGED 两个速度/幅度端点均完成 Windows 视觉验收。该四句结构现作为冻结的输入态基础演奏，后续
+Motif、Accent 或长结构只能在其共享时间轴和边界契约上做可审计扩展，不能重新退回逐句随机拼接。
+此顺序验证了“缺少的是演奏语法而非更多随机动作”，不代表最终产品会机械地循环四句模板。
+
+持续快照可以缓慢改变演奏倾向，不要求收到后立即打断动作。`PRESS` 等视觉 cue 可以即时交给
+特效机，`ACCENT` 则可以由动画机量化到最近的安全拍点；两种响应速度不同是有意设计，不构成状态
+不同步。
+
+## Performance Grammar And Motif Composition
+
+吉他动画不再由播放器逐句随机挑选，而拆成五个职责层：
+
+```text
+状态机意图
+    ↓
+演奏规划器（模板、历史、规则）
+    ↓
+确定的乐谱（乐句 ID、插槽、Motif）
+    ↓
+单时钟动画播放器
+    ↓
+Live2D 参数
+```
+
+- 乐句库保存可以独立验收的时间轴资产。`A` 是稳定基础句，`A′` 是受控变奏，当前 Fill 重新定义为
+  `AccentCadence`，另有不含强重音的 `SoftCadence`。乐句身份与“前一句是什么”解耦，因此 A
+  或 A′ 都可以进入任一合法结尾；
+- 模板只保存插槽及候选角色，不复制 A/A′ 曲线。首批模板语义为 `CONTINUE / SOFT_CLOSE /
+ACCENT_CLOSE`：分别持续演奏、自然收尾和强重音收尾；当前已验收四句只是 `ACCENT_CLOSE` 的一份
+  固定基线实例，不是永远循环的唯一结构；
+- 演奏规划器是规则与历史的唯一所有者。它记录当前模板/插槽、上一乐句、连续基础句数量、连续插入
+  句数量、距上次结尾的间隔及近期 Motif，再依次执行“生成候选 → 硬规则过滤 → 状态评分 → 选择并
+  记录”。诸如最大连续 A、插入句不得连续、允许/禁止后继和结尾后必须回 A 等规则必须集中为可测试
+  数据，不得散落到播放器分支；
+- 初期模板和候选选择保持完全确定；以后即使加入随机，也只能在合法候选中使用可注入随机源选择，
+  并把实际选择写入规划结果，使同一乐谱可以复现。随机数不得参与逐帧曲线；
+- Motif 分为“局部增量”和“拍段/乐句替换”。局部增量必须声明拥有的通道、开始拍点、时长以及首尾
+  为零的混合包络；替换型必须复用插槽的入口/出口姿态与速度。一个通道同一时刻仍只有一个最终
+  写入者，不能把任意动作直接叠到基础曲线上；
+- 首个局部 Motif `immersed-double-nod` 必须先在固定载体上独立循环验收，再验证它与正式乐句的
+  入口/出口，最后才开发通用 additive mixer 和规划器插槽。独立动作及开发态
+  `A → A → A′ → Motif → A` 上下文的两个边界均已通过视觉验收，证明此分层流程可以复用于后续
+  Motif；该验证路径仍不进入任何生产模板或随机选择。Motif 句复用 A 的吉他轨迹，拨弦谱、按弦手、
+  头、身体和双耳均由
+  Motif 自身编排。该 Motif 占满一个四拍小节，按“轻—轻—重—轻”安排四次纵向落点，拨弦同步使用
+  `down → up → accent → up`，按弦手在第三拍重扫前完成最大一次换把。身体 Y 在每次落点后立即前倾
+  承力，双耳再延迟回弹。四拍之间持续准备、下压和恢复，不以半拍准备或空余中立拍制造停顿；小节末
+  只回到零增量位置，并保留朝下一轮准备动作的出口速度。禁止在第四次下压和零边界之间再增加一次
+  正值过冲，否则会与下一轮抬头组成连续反向。动作资产与通用衔接逻辑分轮验收，避免无法区分曲线
+  问题和调度问题；
+- 后续 Motif 的默认上下文契约为 `A → Motif → A`：A 提供共享入口，Motif 结束后必须回到 A。只有
+  动作语义明确依赖变奏铺垫时，才单独声明 `A′ → Motif → A`，不得把 A′ 固化为所有特色动作的
+  通用入口。开发态预览乐谱按 Motif 独立配置，新动作先只循环自身，视觉冻结后再切换到对应上下文；
+- Motif 源码按动作隔离在 `src/utils/guitarMotifs/`。每个动作只拥有自己的 ID、显示名、
+  `homeProfile / minimumProfile`、四拍数据与同名数据测试。`homeProfile` 表示动作最能代表的强度并
+  控制主动作优先级；`minimumProfile` 表示允许出现的最低强度。候选资格按
+  `AUTONOMOUS < ENGAGED < GROOVE < DRIVE` 累计，高强度可包含低强度动作，低强度绝不能选择高强度
+  动作；两字段不得重新压缩成互斥的单 Profile 分组。
+  `types.ts` 是公共数据契约，`registry.ts` 是动作和开发预览乐谱的唯一汇总点，根级
+  `guitarMotifs.ts` 只保留稳定兼容导出。并行制作动作时，各开发者不得修改注册表、菜单或播放器；
+  所有动作独立通过数据测试后，再由集成方一次性登记和暴露开发菜单，避免共享文件冲突；
+- 动作库按时间职责分层，而不是把所有候选平铺为四拍随机项：`Loop / Phrase` 可以直接占用完整乐句，
+  `Micro Accent` 需要量化到安全拍点并短时插入，`Transition` 负责跨姿态或跨模板连接，
+  `Character / Ending` 需要低频、冷却和合法前后继规则。当前 Motif 契约只承载第一类；其他类别在
+  拥有自己的调度与通道所有权契约前不得伪装成普通四拍 Motif；
+- 当前里程碑已经冻结动作数量：`sustain-sway` 是规划器接入前最后一个新增动作，其余候选只作远期
+  backlog。现有动作完成视觉冻结和上下文连续性后必须进入规划器，不得继续以补充动作数量推迟集成；
+- 状态机只表达 `interaction / activity / releasing` 和瞬时 cue；规划器在安全边界把意图变成后续乐谱，
+  播放器只执行乐谱，不解释输入历史、模板规则或“为什么选择这一句”。
+- 规划结果统一携带 `kind / role / profile / gain / reason / slot`。第一版载体强度为
+  `0.60 + 0.40 × smoothstep(activity)`：A、A′ 与 Cadence 在乐句边界采纳并统一缩放七条演奏通道，
+  Motif 保持标准 `gain = 1`。强度属于规划上下文，不得写回冻结动作文件，也不得在乐句中途重算。
+- 自动演奏以确定性四句块运行。普通 Motif 使用 `A → A → Motif → A`，点头 Motif 使用已验收的
+  `A → A → A′ → Motif`；每个 Profile 在 `homeProfile` 相同的主动作池与累计支撑池之间交替选择，
+  两个池各自循环并拒绝立即重复。规划原因必须区分 `performance-home-motif` 与
+  `performance-support-motif`。Profile 改变时只取消尚未开始的旧队列，当前乐句自然完成。
+- `releasing` 是后续乐谱意图，不是逐帧中断信号。规划器在下一乐句边界丢弃未开始的普通块和待播
+  Motif，先且只先播放一次 `SoftCadence`，随后以 `A` 保持并在每个边界重新采纳 activity gain；
+  Profile 在保持期下降不得重播 Cadence。已经开始的 Motif 必须自然结束，`releasing=false` 后从新
+  的 `A` 建立块恢复，不能续接释放前的旧队列。
+
+## Frozen Guitar Consumer Boundary
+
+吉他动画核心以 `GuitarPerformanceIntent` 作为冻结的 durable 端口，不直接依赖状态机 worktree 的
+`CharacterStateUpdate`。最终合并时由顶层表现消费者完成唯一的一对一映射：
+
+| `GuitarInteractionSnapshot` | `GuitarPerformanceIntent` |
+| --------------------------- | ------------------------- |
+| `interaction`               | `profile`                 |
+| `activity`                  | `activity`                |
+| `releasing`                 | `releasing`               |
+
+只有 `snapshot.child.mode === 'guitar'` 且子快照为 active 时才向吉他动画机提交该意图。父级模式进入、
+退出、快速切换以及动画机 `start / stop` 的仲裁归最终顶层消费者，不得由规划器反向推导。
+
+`parentGeneration / revision / sequence` 属于传输与生命周期边界，吉他规划器不保存也不去重；
+`burst` 及 `PRESS / ACCENT / INPUT_REST` 也不属于已冻结的第一版吉他规划输入。瞬时 cue 继续由
+Plan 022 特效机消费，未来若要让 `ACCENT` 改变乐谱，必须另立计划并量化到安全拍点，不能旁路打断
+当前乐句。这样动画分支只冻结演奏能力，真实 `CharacterStateUpdate` 接线在分支合并时一次完成，
+避免为吉他、ANGRY 和豆豆完成动作分别建立临时桥接。
+
+落地顺序固定为：先抽出演奏规划器并保持原四句输出逐项不变；再制作 `SoftCadence`，把继续、柔和
+收尾和重音收尾拆成三份可审计模板；随后接入带完整插槽契约的 Motif，最后让状态意图影响资格、
+强度和释放。三份模板继续作为开发态强制入口保留；生产默认现由累计 Motif 规划器生成四句块，并在
+`releasing` 时复用 `SoftCadence`。每次切换都只在安全乐句边界发生并由独立行为测试保护。
+
+## Effect Engine Ownership
+
+特效机的拆分和优化归本支线，但不并入 Live2D 参数动画机。它只消费状态机已经生成的 snapshot
+与 cue，维护模型外实例的符号、颜色、轨迹、节流、容量、TTL 和回收。Plan 022 已开始把这些视觉
+职责抽入 `GuitarEffectEngine`；其中不得出现 `recentPresses`、静默计时和休止判断。总线尚未合并时，
+旧 `GuitarNoteEffect` 仅作为维持页面预览的临时 POC 适配器保留，不能继续扩展输入规则，并在最终
+integration plan 中随页面旧计时器一起删除。
+
+顶层扇出边界现由 `MikuCatPresentationConsumer` 固定。它声明 `CharacterStateUpdate` 的结构子集，
+因此状态机分支的真实更新可以直接传入，但动画分支不需要导入或复制 reducer、输入窗口、等待阈值、
+优先级和 deadline scheduler。消费者负责 durable intent 映射、generation/revision 淘汰、cue 分发与
+完成边沿去重；吉他和生气特效机仍分别拥有自己的 sequence、TTL、容量与视觉实例。
+
+目标 presentation 与实际动画入场是两个不同事实。`Live2d` 只在目标引擎真正取得参数所有权并启动
+后报告 `guitar / angry / completion`，并在全部引擎释放后报告 `relaxed`。消费者在新 generation
+到达时立即清除旧模式特效，但把目标模式 cue 排队到对应实际入场事件；这避免旧效果穿越交接，也
+避免目标模型尚未出现时先显示音符或怒气特效。同 generation 的 durable 更新只更新动画 intent，
+不得重启 presentation。旧 `GuitarNoteEffect` 与页面静默计时器在最终 integration plan 前仍只是
+预览兼容层，不能接入或扩展这条正式边界。
+
+消费者通过可选 `MikuCatEffectRuntime` 向 UI 发布两套特效的统一不可变快照，并只调度二者最早的
+一个 deadline。deadline 到达后由消费者同时推进引擎、发布变化并重新计算下一时间；模式换代、
+退出和 dispose 必须取消旧 timer。页面不得重新建立逐音符 timer 或怒气 sustain timer。同模式的
+新 generation 由对应引擎原子替换旧 generation，不先用新 generation deactivate；视觉实例 ID 在
+引擎生命周期内保持单调，确保 Vue key 在 generation 边界不会错误复用 CSS 动画节点。
+
+## Compatibility and Delivery
+
+- 只对明确识别的内置 MikuCat 启用 V2 动画能力；其他内置模型与自定义模型保持现有行为；
+- 不修改 Codex/Claude hook、named pipe、Rust Ambient reducer、Agent 状态映射或仓库外配置；
+- Plan 021 不修改音符种类、颜色、轨迹、容量或 TTL；这些内容由并行的 Plan 022 独立迁移；
+- 不新增生产依赖，不在本支线加入声音，也不要求通过 Cubism Editor 制作 motion3；
+- WSL 仓库完成代码和自动化验证后，只增量同步本次文件到 `D:\VibeTool\BongoCat-animation`；Windows dev
+  和构建继续由用户执行，先 dev 视觉验收，再考虑安装包。
