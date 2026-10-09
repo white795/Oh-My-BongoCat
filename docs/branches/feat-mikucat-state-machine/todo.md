@@ -16,11 +16,15 @@ Controller -> Coordinator -> `CharacterStateUpdate` -> PresentationConsumer 的�
 连接测试覆盖真实宿主、输入休止、8 秒/25 秒等待升级、重复 hook、旧 generation、
 完成去重/抢占、手动交还、模型替换及页面卸载。2026-10-09 用户确认联合 dev 全部通过，
 包括退出及重启后的真实 hook 联动，Plan 019/020/029 已闭环。
-冲突已清理、解决结果已由用户暂存；最新收尾文档尚需暂存，Git merge 仍待用户提交。
+用户已完成合并提交 `fe4fbd2`；版本配置已从 `1.4.1` 升级为 `1.5.0` 并同步至 Windows。
+用户反馈安装包已发布，功能源码与内置运行素材保持已验收版本。本地版本改动和收尾文档尚未
+提交；当前先由用户提交并推送本分支，再开始 Windows 原生连接件开发。
 
 ## Active Plan
 
-暂无新的实施计划。当前只待用户完成本次合并提交；安装包发布或进一步调参另行确认。
+暂无新的功能实施计划。当前只收尾已发布的 `1.5.0`，不改变模型能力识别、许可证或 Git 跟踪规则。
+下一阶段范围已确认：独立 Windows Codex hook 发送器，读取 stdin、归一化并写入现有 named pipe；
+hook 注册交给远端 Codex，暂不实现安装器、Claude 适配或常驻服务。本轮提交前不开始该开发。
 
 ## Earlier Stage Records
 
@@ -34,12 +38,14 @@ Controller -> Coordinator -> `CharacterStateUpdate` -> PresentationConsumer 的�
 
 ## Next Action
 
-在当前 WSL 目标仓库暂存 `docs/branches/feat-mikucat-state-machine/` 的最新文档，检查完整索引，
-由用户完成已经发起的 merge 提交，不再次执行 merge。功能源码未随本次文档收尾改变，
-无需重新同步运行文件或重复编译。
+WSL 的 `package.json`、`src-tauri/Cargo.toml` 及根 `Cargo.lock` 中应用版本已统一为 `1.5.0`，
+三个文件已增量同步至 Windows 并逐项核对一致；Tauri 引用 package 版本，无需重复维护。
+由用户提交三个版本文件及本 todo，并推送到 `origin` 的 `feat/mikucat-state-machine` 分支，
+不再发起 merge。提交推送完成、工作区干净后，再记录下一阶段连接件计划并开始实施。
 
-提交后核对工作区；若另行准备安装包，仍由用户在 `D:\VibeTool\BongoCat` 构建并验收安装版，
-不把已经通过的 dev 验收当作安装版验收。
+远端 `white795/BongoCat` 为公开仓库。内置运行资源已存在于提交历史；如果改为外置导入，
+只删除最新目录不能移除历史素材，还需单独设计导入模型的 Agent 能力识别。用户现已明确要求
+推送当前分支；本轮保留内置素材及专有许可证，不实施外置导入或仓库可见性调整。
 
 ## Earlier Verification Records
 
@@ -130,7 +136,7 @@ deadline 调度的 4 项新增测试先因没有预约 timer 按预期失败；�
 
 ## Completed
 
-- [Plan 029](plans/plan-029-mikucat-state-presentation-integration.md)（completed，待用户 Git 合并提交） — [Summary 029](summaries/summary-029-mikucat-state-presentation-integration.md)
+- [Plan 029](plans/plan-029-mikucat-state-presentation-integration.md)（completed，合并提交 `fe4fbd2`） — [Summary 029](summaries/summary-029-mikucat-state-presentation-integration.md)
 - [Plan 020](plans/plan-020-guitar-mode-animation-contract.md)（completed） — [Summary 020](summaries/summary-020-guitar-mode-animation-contract.md)
 - [Plan 019](plans/plan-019-mikucat-guitar-notes.md)（completed） — [Summary 019](summaries/summary-019-mikucat-guitar-notes.md)
 - [Plan 016](plans/plan-016-mikucat-guitar-input.md)（completed） — [Summary 016](summaries/summary-016-mikucat-guitar-input.md)
@@ -138,6 +144,6 @@ deadline 调度的 4 项新增测试先因没有预约 timer 按预期失败；�
 
 ## Queued Plans
 
-- 输入阈值、后续视觉调优或安装包发布不在本次收尾中实施，收到明确任务后再创建下一阶段计划。
+- Windows 原生 Codex 连接件待本轮提交推送后建立计划；输入阈值与后续视觉调优另行确认。
 - relay 同来源多 payload 参数绑定风险：连续两天真实使用未复现，不阻塞当前发布；仅在出现
   真实故障或修改相关链路时建立修复计划。
