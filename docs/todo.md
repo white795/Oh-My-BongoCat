@@ -10,6 +10,7 @@ git branch --show-current
 
 | Git 分支                           | Todo                                                                                                   |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `main`                             | [branches/main/todo.md](branches/main/todo.md)                                                         |
 | `master`                           | [branches/master/todo.md](branches/master/todo.md)                                                     |
 | `feat/input-statistics`            | [branches/feat-input-statistics/todo.md](branches/feat-input-statistics/todo.md)                       |
 | `feat/mikucat-state-machine`       | [branches/feat-mikucat-state-machine/todo.md](branches/feat-mikucat-state-machine/todo.md)             |

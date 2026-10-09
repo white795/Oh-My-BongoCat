@@ -11,6 +11,19 @@ WSL 与 Windows 是两个独立工作副本。代码修改完成后，应只同�
 仓库，并保留 Windows 仓库已有的 `node_modules` 和 `target` 缓存；不要通过重新复制整个仓库
 或重装依赖来代替增量同步。
 
+## 稳定主分支与 PR
+
+- 主仓库为 [`white795/Oh-My-BongoCat`](https://github.com/white795/Oh-My-BongoCat)。
+- `main` 是个人稳定主分支；`master` 保留上游基线，不作为个人功能 PR 的默认目标。
+- 新功能从 `main` 建立独立任务分支；并行任务使用不同 worktree，不在稳定分支直接迭代。
+- PR 的目标是 `white795/Oh-My-BongoCat:main`，不是上游 `ayangweb/BongoCat`。合并前由用户审阅
+  差异与相应验证结果；涉及运行表现时沿用下文的 Windows dev 验收流程。
+- PR 工作方式不授予助手 Git 写权限。暂存、提交、推送、分支操作及合并仍由用户执行；
+  助手只修改授权范围内的工作文件、验证并提供命令建议。
+
+GitHub 仓库改名不等于应用改名。除非另行确认，不改本地目录、`productName`、应用
+`identifier`、named pipe 名称或持久化数据路径。
+
 ## 分支项目记忆
 
 项目计划按 Git 分支隔离在 `docs/branches/<branch-slug>/`，其中 `branch-slug` 是把分支名中的

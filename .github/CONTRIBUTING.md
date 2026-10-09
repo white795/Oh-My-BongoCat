@@ -1,22 +1,30 @@
 # 贡献指南
 
-非常感谢您对 BongoCat 的关注和贡献！在您提交贡献之前，请先花一些时间阅读以下指南，以确保您的贡献能够顺利进行。
+本指南适用于 [white795/Oh-My-BongoCat](https://github.com/white795/Oh-My-BongoCat)，
+稳定主分支为 `main`。上游 `ayangweb/BongoCat` 是来源仓库，不是本分支功能 PR 的目标。
+开发前请阅读 [AGENTS.md](../AGENTS.md) 与 [main 文档入口](../docs/branches/main/todo.md)。
 
 ## 透明的开发
 
 所有工作都在 GitHub 上公开进行。无论是核心团队成员还是外部贡献者的 Pull Request，都需要经过相同的 review 流程。
 
-## 提交 Issue
+## 问题反馈
 
-我们使用 [Github Issues](https://github.com/ayangweb/BongoCat/issues) 进行 Bug 报告和新 Feature 建议。在提交 Issue 之前，请确保已经搜索过类似的问题，因为它们可能已经得到解答或正在被修复。对于 Bug 报告，请包含可用于重现问题的完整步骤。对于新 Feature 建议，请指出你想要的更改以及期望的行为。
+本仓库目前未开启 Issues。问题可联系 [维护者](https://github.com/white795)，或在
+[相关 PR](https://github.com/white795/Oh-My-BongoCat/pulls) 中讨论；开启 Issues 后使用
+[本仓库 Issues](https://github.com/white795/Oh-My-BongoCat/issues)。
+
+Bug 报告请包含软件版本、触发条件和可复现步骤；功能建议请说明目标及边界。
+请勿将本分支新增的 Agent 联动问题直接提交到上游。
 
 ## 提交 Pull Request
 
 ### 共建流程
 
-- 认领 issue：在 Github 建立 Issue 并认领（或直接认领已有 Issue），告知大家自己正在修复，避免重复工作。
-- 项目开发：在完成准备工作后，进行 Bug 修复或功能开发。
-- 提交 PR。
+- 先与维护者确认任务范围，避免重复或无关改动。
+- 从 `main` 建立独立任务分支；并行工作使用不同 worktree，计划保存在自己的分支文档目录。
+- 按变更范围运行测试和静态检查；涉及运行表现时，先完成 Windows dev 验收。
+- PR 的 base repository 选 `white795/Oh-My-BongoCat`，base branch 选 `main`，由维护者审阅后合入。
 
 ### 准备工作
 
@@ -26,22 +34,28 @@
 
 ### 下载依赖
 
+仅首次准备工作副本时安装；已有 Windows 副本保留 `node_modules` 和 `target`，不要通过重复制
+仓库或重装依赖代替增量同步。Windows PowerShell 使用：
+
 ```shell
-pnpm install
+pnpm.cmd install
 ```
 
 ### 启动应用
 
 ```shell
-pnpm tauri dev
+pnpm.cmd tauri dev
 ```
+
+维护者的 Windows 构建与实机验收目录为 `D:\VibeTool\BongoCat`，具体同步及检查流程见
+[AGENTS.md](../AGENTS.md)。WSL / Linux 使用 `pnpm` 命令，不以 WSL 构建代替 Windows 验收。
 
 ### 打包应用
 
-> 如果需要打包后进行调试，请在以下命令后面加上 `--debug`
+只有 Windows dev 验收通过后才生成安装包；构建由用户执行。
 
 ```shell
-pnpm tauri build
+pnpm.cmd tauri build
 ```
 
 ## Commit 指南
@@ -60,4 +74,4 @@ Commit messages 请遵循[conventional-changelog 标准](https://www.conventiona
 - perf: 性能优化
 - chore: 其他提交
 
-期待您的参与，让我们一起使 BongoCat 变得更好！
+本项目的 PR 流程不改变助手的 Git 只读约定；提交、推送和合并由用户执行。

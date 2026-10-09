@@ -2,6 +2,7 @@
 
 Summary 按产生它的 Git 分支保存：
 
+- [`main`](../branches/main/todo.md)：稳定基线及来源总结入口；新任务的总结保存在本分支目录。
 - [`feat/input-statistics`](../branches/feat-input-statistics/summaries/)
 - [`feat/mikucat-state-machine`](../branches/feat-mikucat-state-machine/summaries/)
 - [`feat/mikucat-v2-animation-engine`](../branches/feat-mikucat-v2-animation-engine/summaries/)

@@ -1,5 +1,14 @@
 # 下载指南
 
+## 本分支与上游版本
+
+Oh-My-BongoCat 安装包从
+[本仓库 Releases](https://github.com/white795/Oh-My-BongoCat/releases) 获取，以页面实际附件为准。
+发布页没有提供的包不视为已发布；克隆源码也不会自动安装 Agent hook 发送中间件。
+
+本分支新增功能主要在 Windows 验收。下方 macOS / Linux 命令与文件名示例来自上游，
+对应 [上游 Releases](https://github.com/ayangweb/BongoCat/releases)，不包含本仓库新增功能。
+
 ## 系统要求
 
 - macOS 12 或更高版本。
@@ -43,9 +52,11 @@ brew untap ayangweb/BongoCat
 
 ## Windows
 
-- 64 位系统：下载 `BongoCat_x64.exe`
-- 32 位系统：下载 `BongoCat_x86.exe`
-- ARM64 架构：下载 `BongoCat_arm64.exe`
+本分支请选择本仓库发布页实际提供、与系统架构匹配的 Windows 安装包，不假定已提供 x86 或 ARM64。
+安装后若要使用 Agent 联动，还需按 [接入说明](../integration/README.md) 注册 hook 和部署发送中间件。
+
+仅使用上游版本时，原文件名示例为 `BongoCat_x64.exe`、`BongoCat_x86.exe`、`BongoCat_arm64.exe`；
+具体同样以上游发布页实际附件为准。
 
 ## Linux(X11)
 
