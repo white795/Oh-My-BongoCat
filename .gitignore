@@ -15,6 +15,9 @@ target
 __pycache__/
 *.py[cod]
 
+# Optional local Windows Codex bridge patch; not part of the mainline release.
+/integration/windows-codex-bridge/
+
 # Editor directories and files
 .idea
 .DS_Store

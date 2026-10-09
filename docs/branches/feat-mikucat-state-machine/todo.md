@@ -17,14 +17,23 @@ Controller -> Coordinator -> `CharacterStateUpdate` -> PresentationConsumer 的�
 完成去重/抢占、手动交还、模型替换及页面卸载。2026-10-09 用户确认联合 dev 全部通过，
 包括退出及重启后的真实 hook 联动，Plan 019/020/029 已闭环。
 用户已完成合并提交 `fe4fbd2`；版本配置已从 `1.4.1` 升级为 `1.5.0` 并同步至 Windows。
-用户反馈安装包已发布，功能源码与内置运行素材保持已验收版本。本地版本改动和收尾文档尚未
-提交；当前先由用户提交并推送本分支，再开始 Windows 原生连接件开发。
+用户反馈安装包已发布，功能源码与内置运行素材保持已验收版本。用户已完成版本与收尾文档提交
+`ffa4b6e` 并推送远端；连接件开工前工作区干净。Windows 原生 Codex 连接件现定位为本地可选补丁，
+`integration/windows-codex-bridge/` 已加入 Git 忽略，不作为主线内容或发布阻塞。
+本轮补齐 Agent hook/中间件接入说明与补丁记录，保留已验收的功能代码和 `1.5.0` 版本。
+下一步由用户提交文档收尾，再从本支线建立自己的稳定 `main`；当前尚未创建该分支或执行推送。
 
 ## Active Plan
 
-暂无新的功能实施计划。当前只收尾已发布的 `1.5.0`，不改变模型能力识别、许可证或 Git 跟踪规则。
-下一阶段范围已确认：独立 Windows Codex hook 发送器，读取 stdin、归一化并写入现有 named pipe；
-hook 注册交给远端 Codex，暂不实现安装器、Claude 适配或常驻服务。本轮提交前不开始该开发。
+暂无新的主线实施计划；已发布的 `1.5.0` 保持不变。
+
+## Optional Local Patch
+
+[Plan 030](plans/plan-030-windows-codex-bridge.md)（active，可选补丁，Summary: pending）：独立 Windows
+Codex hook 发送器，读取 stdin、归一化并写入现有 named pipe。纯逻辑及 CLI 测试、文档和
+Windows 增量同步已完成；Windows 构建与远端真实 hook 验收仍待用户执行。
+注册交给远端 Codex，不实现安装器、Claude 原生适配或常驻服务，不改变主程序、WSL bridge 或版本。
+Git 仅保留问题与计划记录，不保存补丁源码；备份和分发需单独处理。
 
 ## Earlier Stage Records
 
@@ -38,14 +47,28 @@ hook 注册交给远端 Codex，暂不实现安装器、Claude 适配或常驻�
 
 ## Next Action
 
-WSL 的 `package.json`、`src-tauri/Cargo.toml` 及根 `Cargo.lock` 中应用版本已统一为 `1.5.0`，
-三个文件已增量同步至 Windows 并逐项核对一致；Tauri 引用 package 版本，无需重复维护。
-由用户提交三个版本文件及本 todo，并推送到 `origin` 的 `feat/mikucat-state-machine` 分支，
-不再发起 merge。提交推送完成、工作区干净后，再记录下一阶段连接件计划并开始实施。
+1. 由用户提交本轮 README、忽略规则及分支文档收尾，确认工作区干净。
+2. 从当前 `feat/mikucat-state-machine` 创建稳定 `main` 并推送至 `origin`；保留原 `master`
+   和功能分支，不重做 merge，不纳入被忽略的 Windows 原生补丁。
+3. `main` 实际建立后补齐该分支的文档入口与 PR 工作约定，再从它创建后续任务分支。
+
+以下仅为可选补丁的后续验收，不阻塞稳定主分支建立：
+
+由用户在 Windows 独立目录执行 `cargo test --locked`、
+`cargo build --release --locked`。先用 `lifecycle --diagnose` 手动推送工作/等待/恢复/完成/结束，
+确认普通权限连接管理员 BongoCat，再将 exe 与说明发给对方做真实 hook 注册和验收。
+操作步骤见本地 `integration/windows-codex-bridge/README.md`（被忽略，不随 Git 克隆提供）。
 
 远端 `white795/BongoCat` 为公开仓库。内置运行资源已存在于提交历史；如果改为外置导入，
 只删除最新目录不能移除历史素材，还需单独设计导入模型的 Agent 能力识别。用户现已明确要求
 推送当前分支；本轮保留内置素材及专有许可证，不实施外置导入或仓库可见性调整。
+
+## Local Patch Verification
+
+Plan 030 的 Linux 测试共 50 项通过（18 项连接件行为 + 32 项真实接收器回归），定向 Clippy、
+Rust 格式与差异检查通过。独立目录的 9 个新文件已同步 Windows 并逐项核对一致，未复制 Linux
+编译产物；未改主程序、根依赖锁、版本、管道权限、WSL/Claude bridge 或实际 Agent 配置。
+Win32 专用代码尚待 Windows 编译及实机验收，不将 Linux 测试计为 IPC 成功。
 
 ## Earlier Verification Records
 
@@ -144,6 +167,6 @@ deadline 调度的 4 项新增测试先因没有预约 timer 按预期失败；�
 
 ## Queued Plans
 
-- Windows 原生 Codex 连接件待本轮提交推送后建立计划；输入阈值与后续视觉调优另行确认。
+- 输入阈值与后续视觉调优另行确认。
 - relay 同来源多 payload 参数绑定风险：连续两天真实使用未复现，不阻塞当前发布；仅在出现
   真实故障或修改相关链路时建立修复计划。

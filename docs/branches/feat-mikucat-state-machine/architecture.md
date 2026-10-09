@@ -258,6 +258,18 @@ Live2D 仍按内置 model3 的语义文件路径解析表情，不硬编码索�
 `RELAXED` 或交还手动控制请求退出并恢复默认表情，鼠标在参数交接结束后恢复。豆豆不是稳定态，
 只由完成 cue 请求一次性动画，并允许新工作/等待抢占。两套外部特效已接入，联合实机验收见 Plan 029。
 
+## Optional Windows Codex Bridge
+
+[Plan 030](plans/plan-030-windows-codex-bridge.md) 为 Windows 原生 Codex 新增可选发送器，代码与
+独立 Cargo 配置位于 `integration/windows-codex-bridge/`。该目录被 Git 忽略，仅作为本地补丁，
+不纳入主线源码、Tauri workspace 或默认安装包；计划保留问题与设计记录，不保证克隆后带有补丁。
+hook 直接将 stdin JSON 交给单次 exe，发送器仅归一化、编码并写入当前用户的既有 named pipe。
+它不监听 Codex、不常驻、不启动 BongoCat、不持有状态或 sequence，也不改变 WSL/Claude 路径。
+主程序仍是唯一的状态归约与显示宿主；既有管道权限和协议保持不变。
+
+真实 hook 模式静默 fail-open；诊断输出仅供手动验收，写入成功不是接收 ACK。注册由远端 Codex
+在实际配置层协助完成，连接件不自动修改配置。补丁单独备份、构建与验收，不作为主线发布阻塞。
+
 ## Compatibility and Release Boundary
 
 - WSL 仓库负责代码与文档；Windows `D:\VibeTool\BongoCat` 负责 Tauri dev、Live2D 实机表现和

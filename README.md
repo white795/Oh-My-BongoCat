@@ -54,8 +54,40 @@
 - 适配 macOS、Windows 和 Linux(x11)。
 - 根据键盘、鼠标或手柄的操作，同步对应的动作。
 - 支持导入自定义模型，自由打造专属猫咪形象。
-- 完全开源，代码公开透明，绝不收集任何用户数据。
+- 程序源码采用 [MIT 许可证](LICENSE)，MikuCat 素材另受
+  [专有素材许可证](src-tauri/assets/models/mikucat/LICENSE)约束；不收集用户数据。
 - 支持离线运行，无需联网，保护用户隐私。
+
+## Agent 状态联动（本分支）
+
+Agent 氛围灯、屏幕边缘提示和 MikuCat 状态动画是可选功能。BongoCat 内置状态接收与显示，
+但安装包不会自动注册 Agent hook 或部署发送中间件；只安装 BongoCat 不会自动获得 Agent 状态，
+不配置这些组件也不影响原有键盘、鼠标和手柄功能。
+
+维护者当前使用的是 **WSL Agent + Windows BongoCat**，链路为：
+
+```text
+Agent lifecycle hook -> WSL adapter -> WSL relay
+                     -> PowerShell dispatcher -> Windows named pipe -> BongoCat
+```
+
+接入需要完成三项配置：
+
+1. 在 Agent 侧注册 lifecycle hooks：Codex 使用六个事件，Claude Code 使用八个事件，
+   具体映射与命令见 [integration/README.md](integration/README.md)。
+2. 部署对应 hook/adapter 的稳定运行副本，以及 WSL relay、dispatcher 和 systemd 用户
+   socket/service；仓库提供源码，不会随 BongoCat 安装包自动配置它们。
+3. 运行 Windows BongoCat，并开启“Agent 氛围灯”或“Agent 接管模型”；模型接管仅适用于
+   内置 MikuCat，两个开关独立。发送器与接收端须使用同一 Windows 用户。
+
+给后续开发者 / Agent：先读 [integration/README.md](integration/README.md) 的接入前提与
+运行链路，以及 [AGENTS.md](AGENTS.md) 的“仓库外 agent 配置”。排查顺序是 hook 注册/触发
+→ adapter → relay → named pipe → BongoCat 消费开关，不必先遍历模型动画代码。
+Codex legacy `notify` 只负责 Windows toast，不是氛围灯的完成事件源；完成由 `Stop` 驱动。
+
+Windows 原生 Codex 连接件是本地可选补丁，`integration/windows-codex-bridge/` 被 Git 忽略，
+不随 clone/pull 或默认安装包提供，也不是当前 WSL 链路的依赖；问题记录见
+[Plan 030](docs/branches/feat-mikucat-state-machine/plans/plan-030-windows-codex-bridge.md)。
 
 ## 模型转换
 

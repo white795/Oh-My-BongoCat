@@ -1,8 +1,34 @@
 # Codex Ambient Bridge
 
+Windows 原生 Codex 连接件仅作为本地可选补丁，`windows-codex-bridge/` 被 Git 忽略，不随仓库
+或 BongoCat 默认安装包分发。缺少原生 hook 发送器与注册时，Windows Agent 不会自动接入；
+问题与补丁边界见 [Plan 030](../docs/branches/feat-mikucat-state-machine/plans/plan-030-windows-codex-bridge.md)。
+下文仍描述现有 WSL bridge，两条路径不互相替换。
+
 该目录把 WSL 中的 Codex 与 Claude Code lifecycle hook 转换成最小事件，并发送给已经运行的
 Windows BongoCat。它不是网络服务，也不开放网络端口。Codex legacy notify 不进入此 bridge，
 只由 `~/.codex/launcher.sh` 保留原有 Windows toast。
+
+## 接入前提与排查入口
+
+当前维护者使用的是 WSL bridge，不是被忽略的 Windows 原生补丁。BongoCat 安装包仅提供
+接收与显示；Agent hook 注册和 WSL 中间件部署是额外步骤，安装或更新主程序不会代替它们。
+
+- Hook 注册位置：Codex 的 `~/.codex/hooks.json`、Claude Code 的 `~/.claude/settings.json`
+  中的 `hooks`。事件与命令见下文对应配置章节，实际支持情况以所用 Agent 为准。
+- 稳定运行副本：Codex 使用 `~/.codex/ambient/`，Claude Code 使用 `~/.claude/ambient/`；
+  注册命令指向这些目录，而非会随开发移动的仓库路径。只 clone 仓库不会建立这些副本。
+- 中间件：部署 `bongocat-ambient-relay` 与同目录的 `bongocat-ambient-dispatch.ps1`；
+  按仓库 service 定义，relay 默认运行路径是 `~/.local/bin/bongocat-ambient-relay`。
+  还需安装并启用 `bongocat-ambient-relay.socket` 用户单元，按需激活同名 service，
+  并保证 Python 3 与 WSL 调用 Windows PowerShell 的能力可用。
+
+排查先确认 hook 是否注册并触发、运行副本是否存在，再检查 relay socket/service 与日志，
+随后检查 Windows named pipe 和 BongoCat 消费开关。接收器/协议分别在
+[`ambient_pipe.rs`](../src-tauri/src/core/ambient_pipe.rs)、
+[`ambient.rs`](../src-tauri/src/core/ambient.rs)；中间件源码在本目录。
+仓库外 Agent 配置与对应运行副本清单见 [AGENTS.md](../AGENTS.md)；检查 Claude 配置时不要回显整份文件，
+其中可能包含认证密钥。
 
 ## Runtime flow
 
@@ -21,7 +47,8 @@ relay daemon 在 WSL 侧按 `session_id` 聚合事件，优先级去抖后批量
 （`PreToolUse`、`PostToolUse`）2 秒窗口合并。单次 flush 启动一个 PowerShell 进程处理所有
 会话事件，进程启动成本与会话数量解耦。
 
-BongoCat 必须已经运行并启用“Agent 氛围灯”。named pipe 不存在、功能关闭或输入无效时，
+BongoCat 必须已经运行，并开启“Agent 氛围灯”或“Agent 接管模型”至少一个消费者；后者只对
+内置 MikuCat 生效，两个开关互相独立。named pipe 不存在、两个消费者都关闭或输入无效时，
 bridge 静默退出，不会启动 BongoCat，也不会让 Codex hook 失败。PowerShell client 不需要管理员
 权限，因此普通 Codex 可以向管理员 BongoCat 推送事件。
 
