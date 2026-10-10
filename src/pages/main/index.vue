@@ -20,6 +20,7 @@ import type { CharacterAmbientSnapshot, CharacterPresentationTransition } from '
 import type { GuitarNote } from '@/utils/guitarEffectEngine'
 import type { GuitarMotifId } from '@/utils/guitarMotifs'
 import type { GuitarPerformanceProfile, GuitarPerformanceTemplateId } from '@/utils/guitarPerformance'
+import type { KeyBubble } from '@/utils/keyBubble'
 
 import { useAppMenu } from '@/composables/useAppMenu'
 import { useDevice } from '@/composables/useDevice'
@@ -31,11 +32,12 @@ import { hideWindow, setAlwaysOnTop, setTaskbarVisibility, showWindow } from '@/
 import { useCatStore } from '@/stores/cat'
 import { useGeneralStore } from '@/stores/general.ts'
 import { useModelStore } from '@/stores/model'
-import { CharacterPresentationController } from '@/utils/characterPresentationController'
+import { CharacterPresentationController, supportsAgentPresentation } from '@/utils/characterPresentationController'
 import { CharacterStateCoordinator } from '@/utils/characterStateCoordinator'
 import { GUITAR_MOTIF_CATALOG } from '@/utils/guitarMotifs'
 import { GUITAR_CONTINUE_TEMPLATE_ID, GUITAR_INPUT_BASELINE_TEMPLATE_ID, GUITAR_SOFT_CLOSE_TEMPLATE_ID } from '@/utils/guitarPerformance'
 import { isImage } from '@/utils/is'
+import { createKeyBubbleOffset, getKeyBubbleFile, MIKUCAT_KEY_BUBBLE } from '@/utils/keyBubble'
 import live2d from '@/utils/live2d'
 import { MikuCatPresentationConsumer } from '@/utils/mikuCatPresentationConsumer'
 import { join } from '@/utils/path'
@@ -44,6 +46,7 @@ import { clearObject } from '@/utils/shared'
 
 import AngryEffectLayer from './AngryEffectLayer.vue'
 import GuitarNoteLayer from './GuitarNoteLayer.vue'
+import KeyBubbleLayer from './KeyBubbleLayer.vue'
 
 const appWindow = getCurrentWebviewWindow()
 const { modelSize, handleLoad, handleDestroy, handleResize, handleKeyChange } = useModel()
@@ -57,6 +60,10 @@ const { stickActive } = useGamepad()
 const presentationController = new CharacterPresentationController()
 const guitarNotes = ref<readonly GuitarNote[]>([])
 const angryEffects = ref<readonly AngryEffectInstance[]>([])
+const keyBubble = ref<KeyBubble>()
+let keyBubbleTimer: number | undefined
+let keyBubbleSequence = 0
+let keyBubbleModelId: string | undefined
 const presentationClock = () => performance.now()
 const deadlineRuntime = {
   setTimeout: (callback: () => void, delayMs: number) => window.setTimeout(callback, delayMs),
@@ -76,7 +83,10 @@ const stateCoordinator = new CharacterStateCoordinator(presentationClock, {
 let presentationUnlisten: UnlistenFn | undefined
 let presentationReady = false
 let presentationDisposed = false
-const { startListening } = useDevice({ onKeyboardPress: handleGuitarKeyPress })
+const unlistenKeyBubbleMode = live2d.onAnimationModeChange((mode) => {
+  if (mode !== 'relaxed') clearKeyBubble()
+})
+const { startListening } = useDevice({ onKeyboardPress: handleKeyboardPress })
 const angryDebugIntensities: readonly AngryAnimationIntensity[] = ['annoyed', 'impatient', 'furious']
 const guitarDebugProfiles = ['autonomous', 'engaged', 'groove', 'drive'] as const
 const guitarDebugMotifs: readonly { text: string, motifId?: GuitarMotifId }[] = [
@@ -175,6 +185,8 @@ onMounted(() => {
 onUnmounted(() => {
   presentationDisposed = true
   presentationUnlisten?.()
+  unlistenKeyBubbleMode()
+  clearKeyBubble()
   stateCoordinator.dispose()
   presentationConsumer.dispose()
   guitarNotes.value = []
@@ -200,6 +212,8 @@ useEventListener('resize', () => {
 })
 
 watch(() => modelStore.currentModel, async (model) => {
+  keyBubbleModelId = undefined
+  clearKeyBubble()
   applyPresentationTransition(presentationController.setModel(undefined))
 
   if (!model) {
@@ -244,6 +258,7 @@ watch(() => modelStore.currentModel, async (model) => {
   }
 
   modelStore.modelReady = true
+  keyBubbleModelId = supportsAgentPresentation(model) ? model.id : undefined
   applyPresentationTransition(presentationController.setModel(model))
 }, { deep: true, immediate: true })
 
@@ -347,12 +362,56 @@ function applyPresentationTransition(transition: CharacterPresentationTransition
   }
 
   presentationConsumer.apply(stateCoordinator.applyPresentation(transition))
+  if (!canShowKeyBubble()) clearKeyBubble()
 }
 
-function handleGuitarKeyPress() {
+function canShowKeyBubble() {
+  const presentation = stateCoordinator.snapshot.presentation
+
+  return !presentationDisposed
+    && keyBubbleModelId !== undefined
+    && keyBubbleModelId === modelStore.currentModel?.id
+    && modelStore.modelReady
+    && live2d.enteredAnimationMode === 'relaxed'
+    && (presentation.owner === 'manual' || presentation.mode === 'relaxed')
+}
+
+function clearKeyBubble() {
+  keyBubbleSequence++
+  if (keyBubbleTimer !== undefined) window.clearTimeout(keyBubbleTimer)
+  keyBubbleTimer = undefined
+  keyBubble.value = undefined
+}
+
+function handleKeyboardPress(key: string) {
   if (presentationDisposed) return
 
   presentationConsumer.apply(stateCoordinator.press(stateCoordinator.snapshot.presentation.generation))
+  if (!canShowKeyBubble()) return
+
+  const file = getKeyBubbleFile(key)
+  const model = modelStore.currentModel
+  if (!file || !model) return
+
+  if (keyBubbleTimer !== undefined) window.clearTimeout(keyBubbleTimer)
+  const sequence = ++keyBubbleSequence
+  const current = keyBubble.value
+  keyBubble.value = {
+    ...(current ?? createKeyBubbleOffset()),
+    // Keep the entrance animation and random offset stable while the bubble floats.
+    id: current?.id ?? sequence,
+    src: convertFileSrc(join(model.path, 'resources', 'input-bubbles', file)),
+    phase: 'visible',
+  }
+  keyBubbleTimer = window.setTimeout(() => {
+    if (keyBubbleSequence !== sequence || !keyBubble.value) return
+    keyBubble.value = { ...keyBubble.value, phase: 'leaving' }
+    keyBubbleTimer = window.setTimeout(() => {
+      if (keyBubbleSequence !== sequence) return
+      keyBubbleTimer = undefined
+      keyBubble.value = undefined
+    }, MIKUCAT_KEY_BUBBLE.fadeOutMs)
+  }, MIKUCAT_KEY_BUBBLE.holdMs)
 }
 
 function handleMouseDown() {
@@ -507,6 +566,11 @@ function handleMouseMove(event: MouseEvent) {
 
     <AngryEffectLayer
       :effects="angryEffects"
+      :mirrored="catStore.model.mirror"
+    />
+
+    <KeyBubbleLayer
+      :bubble="keyBubble"
       :mirrored="catStore.model.mirror"
     />
 

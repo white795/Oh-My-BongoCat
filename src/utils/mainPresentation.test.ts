@@ -11,10 +11,11 @@ import type { GuitarPerformanceIntent } from './guitarPerformance.ts'
 import type { MikuCatEnteredMode, MikuCatPresentationMode } from './mikuCatPresentationConsumer.ts'
 
 import { INVOKE_KEY, LISTEN_KEY } from '../constants/index.ts'
-import { CharacterPresentationController } from './characterPresentationController.ts'
+import { CharacterPresentationController, supportsAgentPresentation } from './characterPresentationController.ts'
 import { CharacterStateCoordinator } from './characterStateCoordinator.ts'
 import { GUITAR_MOTIF_CATALOG } from './guitarMotifs.ts'
 import * as guitarPerformance from './guitarPerformance.ts'
+import * as keyBubble from './keyBubble.ts'
 import { MikuCatPresentationConsumer } from './mikuCatPresentationConsumer.ts'
 
 // Exercise the actual page setup and real state/consumer modules, replacing
@@ -25,7 +26,8 @@ function fixture(initial: CharacterAmbientSnapshot, load: () => Promise<void> = 
   let ready = false
   let destroyed = 0
   let unlistened = 0
-  let press = () => {}
+  let bubbleOffsetCount = 0
+  let press = (_key: string) => {}
   let ambientListener = (_event: { payload: CharacterAmbientSnapshot }) => {}
   const mounted: Array<() => void> = []
   const unmounted: Array<() => void> = []
@@ -34,6 +36,7 @@ function fixture(initial: CharacterAmbientSnapshot, load: () => Promise<void> = 
   const modeListeners = new Set<(mode: MikuCatEnteredMode) => void>()
   const watches: Array<{ source: () => unknown, previous: unknown, callback: (value: unknown) => unknown }> = []
   const arrayRefs: Array<{ value: unknown[] }> = []
+  const pageBindings: { getKeyBubble?: () => keyBubble.KeyBubble | undefined } = {}
   let modelLoad: Promise<unknown> | undefined
   const modelStore = {
     currentModel: { id: 'preset:mikucat', path: 'model', isPreset: true, presetKey: 'mikucat' },
@@ -147,7 +150,7 @@ function fixture(initial: CharacterAmbientSnapshot, load: () => Promise<void> = 
       },
     },
     '@/composables/useAppMenu': { useAppMenu: () => ({}) },
-    '@/composables/useDevice': { useDevice: (options: { onKeyboardPress: () => void }) => {
+    '@/composables/useDevice': { useDevice: (options: { onKeyboardPress: (key: string) => void }) => {
       press = options.onKeyboardPress
       return { startListening() {} }
     } },
@@ -168,11 +171,15 @@ function fixture(initial: CharacterAmbientSnapshot, load: () => Promise<void> = 
     '@/stores/cat': { useCatStore: () => catStore },
     '@/stores/general.ts': { useGeneralStore: () => generalStore },
     '@/stores/model': { useModelStore: () => modelStore },
-    '@/utils/characterPresentationController': { CharacterPresentationController },
+    '@/utils/characterPresentationController': { CharacterPresentationController, supportsAgentPresentation },
     '@/utils/characterStateCoordinator': { CharacterStateCoordinator },
     '@/utils/guitarMotifs': { GUITAR_MOTIF_CATALOG },
     '@/utils/guitarPerformance': guitarPerformance,
     '@/utils/is': { isImage: () => false },
+    '@/utils/keyBubble': {
+      ...keyBubble,
+      createKeyBubbleOffset: () => ({ offsetX: ++bubbleOffsetCount, offsetY: -24 - bubbleOffsetCount }),
+    },
     '@/utils/live2d': { __esModule: true, default: target },
     '@/utils/mikuCatPresentationConsumer': { MikuCatPresentationConsumer },
     '@/utils/path': { join: (...parts: string[]) => parts.join('/') },
@@ -188,8 +195,8 @@ function fixture(initial: CharacterAmbientSnapshot, load: () => Promise<void> = 
     target: ts.ScriptTarget.ES2020,
     esModuleInterop: true,
   } })
-  runInNewContext(outputText, {
-    exports: {},
+  runInNewContext(`${outputText}\nexports.getKeyBubble = () => typeof keyBubble === 'undefined' ? undefined : keyBubble.value;`, {
+    exports: pageBindings,
     require: (id: string) => {
       assert.ok(id in modules, `Unexpected setup dependency: ${id}`)
       return modules[id]
@@ -228,8 +235,17 @@ function fixture(initial: CharacterAmbientSnapshot, load: () => Promise<void> = 
     advance,
     target,
     timers,
-    press: () => press(),
+    press: (key = 'KeyA') => press(key),
     setAgentEnabled,
+    async selectModel(presetKey: string) {
+      modelStore.currentModel = { id: `preset:${presetKey}`, path: `model-${presetKey}`, isPreset: true, presetKey }
+      for (const watch of watches) {
+        const value = watch.source()
+        if (value === watch.previous) continue
+        watch.previous = value
+        await watch.callback(value)
+      }
+    },
     ambient: (payload: CharacterAmbientSnapshot) => ambientListener({ payload }),
     expression: (payload: number) => listeners.get(LISTEN_KEY.SET_EXPRESSION)?.({ payload }),
     motion: () => listeners.get(LISTEN_KEY.START_MOTION)?.({ payload: {} }),
@@ -242,6 +258,9 @@ function fixture(initial: CharacterAmbientSnapshot, load: () => Promise<void> = 
     get angryEffects() {
       return arrayRefs[1].value as Array<{ intensity: string }>
     },
+    bubbleSnapshot() {
+      return pageBindings.getKeyBubble?.()
+    },
     get destroyed() {
       return destroyed
     },
@@ -250,6 +269,9 @@ function fixture(initial: CharacterAmbientSnapshot, load: () => Promise<void> = 
     },
     get modeListenerCount() {
       return modeListeners.size
+    },
+    get bubbleOffsetCount() {
+      return bubbleOffsetCount
     },
   }
 }
@@ -316,4 +338,124 @@ it('does not restore presentation or a model whose asynchronous load finishes af
   f.ambient({ sequence: 2, sessions: [{ sessionId: 'a', state: 'working' }] })
   f.press()
   assert.equal(f.target.requests.includes('guitar'), false)
+})
+
+it('replaces a key without replaying its entrance or randomizing its offset and refreshes the hold before fading', async () => {
+  const f = fixture({ sequence: 1, sessions: [] })
+  await f.mount()
+  f.press('KeyA')
+  assert.equal(f.bubbleSnapshot()?.src, 'model/resources/input-bubbles/Key_A.png')
+  const first = f.bubbleSnapshot()
+  assert.equal(first?.phase, 'visible')
+  assert.equal(f.notes.length, 0)
+  assert.equal(f.timers.size, 1)
+
+  f.advance(500)
+  f.press('KeyB')
+  assert.equal(f.bubbleSnapshot()?.src, 'model/resources/input-bubbles/Key_B.png')
+  assert.equal(f.bubbleSnapshot()?.id, first?.id, 'a visible bubble must not remount when its label changes')
+  assert.equal(f.bubbleSnapshot()?.offsetX, first?.offsetX)
+  assert.equal(f.bubbleSnapshot()?.offsetY, first?.offsetY)
+  assert.equal(f.bubbleOffsetCount, 1)
+  assert.equal(f.timers.size, 1, 'rapid typing must not accumulate cleanup timers')
+  f.advance(599)
+  assert.equal(f.bubbleSnapshot()?.phase, 'visible', 'the hold must be measured from the latest press')
+  f.advance(1)
+  assert.equal(f.bubbleSnapshot()?.phase, 'leaving')
+  f.advance(199)
+  assert.equal(f.bubbleSnapshot()?.src, 'model/resources/input-bubbles/Key_B.png')
+  f.advance(1)
+  assert.equal(f.bubbleSnapshot(), undefined)
+  assert.equal(f.timers.size, 0)
+  f.unmount()
+})
+
+it('restores a fading bubble without replaying its entrance and chooses a new offset only after it disappears', async () => {
+  const f = fixture({ sequence: 1, sessions: [] })
+  await f.mount()
+  f.press('KeyA')
+  const first = f.bubbleSnapshot()
+  const staleHold = [...f.timers.values()][0].callback
+  f.advance(650)
+  assert.equal(f.bubbleSnapshot()?.phase, 'leaving')
+  const staleFade = [...f.timers.values()][0].callback
+  f.press('KeyB')
+  assert.equal(f.bubbleSnapshot()?.id, first?.id)
+  assert.equal(f.bubbleSnapshot()?.phase, 'visible')
+  assert.equal(f.bubbleOffsetCount, 1)
+  staleHold()
+  staleFade()
+  assert.equal(f.bubbleSnapshot()?.phase, 'visible', 'expired callbacks must not fade or clear a renewed bubble')
+  assert.equal(f.timers.size, 1)
+  f.advance(800)
+  assert.equal(f.bubbleSnapshot(), undefined)
+  f.press('KeyC')
+  assert.notEqual(f.bubbleSnapshot()?.id, first?.id)
+  assert.notEqual(f.bubbleSnapshot()?.offsetX, first?.offsetX)
+  assert.equal(f.bubbleOffsetCount, 2)
+  f.unmount()
+})
+
+it('clears default bubbles on Agent mode changes and excludes guitar, angry and completion playback', async () => {
+  const f = fixture({ sequence: 1, sessions: [] })
+  await f.mount()
+  f.press('KeyA')
+  assert.ok(f.bubbleSnapshot())
+  f.ambient({ sequence: 2, sessions: [{ sessionId: 'a', state: 'working' }] })
+  assert.equal(f.bubbleSnapshot(), undefined)
+  f.press('KeyB')
+  assert.equal(f.bubbleSnapshot(), undefined)
+  assert.equal(f.notes.length, 1, 'guitar input must still reach the existing effects path')
+
+  f.ambient({ sequence: 3, sessions: [{ sessionId: 'a', state: 'waiting' }] })
+  f.target.enter('relaxed')
+  f.press('KeyC')
+  assert.equal(f.bubbleSnapshot(), undefined, 'the Agent target mode also gates a bubble before animation handoff')
+
+  f.ambient({ sequence: 4, sessions: [{ sessionId: 'a', state: 'done' }] })
+  f.press('KeyD')
+  assert.equal(f.bubbleSnapshot(), undefined)
+  f.target.enter('relaxed')
+  f.press('KeyE')
+  assert.equal(f.bubbleSnapshot()?.src, 'model/resources/input-bubbles/Key_E.png')
+  f.unmount()
+})
+
+it('allows default bubbles without Agent ownership and clears them on manual mode changes and unmount', async () => {
+  const f = fixture({ sequence: 1, sessions: [] })
+  await f.mount()
+  f.setAgentEnabled(false)
+  f.press('KeyQ')
+  assert.equal(f.bubbleSnapshot()?.src, 'model/resources/input-bubbles/Key_Q.png')
+  f.advance(600)
+  assert.equal(f.bubbleSnapshot()?.phase, 'leaving')
+  f.target.enter('guitar')
+  assert.equal(f.bubbleSnapshot(), undefined)
+  f.press('KeyA')
+  assert.equal(f.bubbleSnapshot(), undefined)
+  f.target.enter('relaxed')
+  f.press('KeyB')
+  assert.ok(f.bubbleSnapshot())
+  f.unmount()
+  assert.equal(f.bubbleSnapshot(), undefined)
+  assert.equal(f.timers.size, 0)
+  assert.equal(f.modeListenerCount, 0)
+  f.press('KeyC')
+  assert.equal(f.bubbleSnapshot(), undefined)
+})
+
+it('clears a bubble when switching models and never adds MikuCat sprites to other models', async () => {
+  const f = fixture({ sequence: 1, sessions: [] })
+  await f.mount()
+  f.press('KeyA')
+  assert.ok(f.bubbleSnapshot())
+  await f.selectModel('standard')
+  assert.equal(f.bubbleSnapshot(), undefined)
+  assert.equal(f.timers.size, 0)
+  f.press('KeyB')
+  assert.equal(f.bubbleSnapshot(), undefined)
+  await f.selectModel('mikucat')
+  f.press('KeyC')
+  assert.equal(f.bubbleSnapshot()?.src, 'model-mikucat/resources/input-bubbles/Key_C.png')
+  f.unmount()
 })

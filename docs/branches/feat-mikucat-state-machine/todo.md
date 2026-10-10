@@ -20,12 +20,18 @@ Controller -> Coordinator -> `CharacterStateUpdate` -> PresentationConsumer 的�
 用户反馈安装包已发布，功能源码与内置运行素材保持已验收版本。用户已完成版本与收尾文档提交
 `ffa4b6e` 并推送远端；连接件开工前工作区干净。Windows 原生 Codex 连接件现定位为本地可选补丁，
 `integration/windows-codex-bridge/` 已加入 Git 忽略，不作为主线内容或发布阻塞。
-本轮补齐 Agent hook/中间件接入说明与补丁记录，保留已验收的功能代码和 `1.5.0` 版本。
-下一步由用户提交文档收尾，再从本支线建立自己的稳定 `main`；当前尚未创建该分支或执行推送。
+稳定 `main` 已建立，仓库已更名为 `white795/Oh-My-BongoCat`；当前功能继续在本分支迭代，
+后续通过 PR 进入 `main`，不直接修改稳定主分支。
+
+本轮恢复内置 MikuCat 默认态的按键气泡，新增 45 张内置运行 PNG。连续输入仅替换图片、刷新
+消失倒计时；入场、随机偏移和弧线上浮不会因换字重启。吉他、生气及完成动画期间不显示气泡，
+不改变人物动画或输入统计。用户已确认 Windows dev 的最终观感可接受，本轮不再继续视觉调优。
+`package.json`、Rust 清单和根 `Cargo.lock` 的应用版本已对齐为 `1.5.1`，Tauri 继续继承
+`package.json`；安装包构建、安装验收和发布尚未执行。
 
 ## Active Plan
 
-暂无新的主线实施计划；已发布的 `1.5.0` 保持不变。
+暂无新的主线实施计划；当前仅做已验收按键气泡与 `1.5.1` 的提交前收尾，不扩展动画机或状态机。
 
 ## Optional Local Patch
 
@@ -47,21 +53,33 @@ Git 仅保留问题与计划记录，不保存补丁源码；备份和分发需�
 
 ## Next Action
 
-1. 由用户提交本轮 README、忽略规则及分支文档收尾，确认工作区干净。
-2. 从当前 `feat/mikucat-state-machine` 创建稳定 `main` 并推送至 `origin`；保留原 `master`
-   和功能分支，不重做 merge，不纳入被忽略的 Windows 原生补丁。
-3. `main` 实际建立后补齐该分支的文档入口与 PR 工作约定，再从它创建后续任务分支。
+1. 由用户审阅并提交本轮按键气泡、运行 PNG、README、版本及本分支文档；不纳入原始素材、
+   依赖缓存或被忽略的 Windows 原生补丁。
+2. 沿用已通过的 Windows dev 验收，由用户在 `D:\VibeTool\BongoCat` 执行
+   `pnpm.cmd tauri build`，随后安装并检查 `1.5.1` 的素材显示及持久化数据。
+3. 由用户推送当前功能分支，通过 PR 提交到 `white795/Oh-My-BongoCat:main`。
 
-以下仅为可选补丁的后续验收，不阻塞稳定主分支建立：
+以下仅为可选补丁的后续验收，不阻塞本轮按键气泡提交和发布：
 
 由用户在 Windows 独立目录执行 `cargo test --locked`、
 `cargo build --release --locked`。先用 `lifecycle --diagnose` 手动推送工作/等待/恢复/完成/结束，
 确认普通权限连接管理员 BongoCat，再将 exe 与说明发给对方做真实 hook 注册和验收。
 操作步骤见本地 `integration/windows-codex-bridge/README.md`（被忽略，不随 Git 克隆提供）。
 
-远端 `white795/BongoCat` 为公开仓库。内置运行资源已存在于提交历史；如果改为外置导入，
-只删除最新目录不能移除历史素材，还需单独设计导入模型的 Agent 能力识别。用户现已明确要求
-推送当前分支；本轮保留内置素材及专有许可证，不实施外置导入或仓库可见性调整。
+当前 `origin` 指向 `white795/Oh-My-BongoCat`。内置运行资源已存在于提交历史；如果改为外置导入，
+只删除最新目录不能移除历史素材，还需单独设计导入模型的 Agent 能力识别。本轮提交前收尾
+不改变素材分发方式，保留内置素材及专有许可证，不实施外置导入或仓库可见性调整。
+
+## Current Verification
+
+2026-10-10 按键气泡收尾：20 项相关测试（气泡映射与资源、页面生命周期、输入统计、MikuCat
+运行素材）通过；定向 ESLint、TypeScript、Vite 前端生产构建和差异检查通过。构建仍有既有
+动态导入及大 chunk 警告，未执行 Rust 编译或安装包构建。
+
+45 张运行 PNG 与本地原始素材逐张校验一致；原始素材、可选补丁、依赖和构建缓存仍被忽略，
+无需新增忽略规则。运行相关源码、测试、资源及版本共 54 个路径已核对与 Windows 一致；本轮
+只增量同步 5 个收尾文件，未覆盖 Windows 无关文件或文档。用户已完成 dev 视觉验收，
+`1.5.1` 安装包验收仍待执行；助手未暂存、提交或推送。
 
 ## Local Patch Verification
 

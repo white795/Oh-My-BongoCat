@@ -42,7 +42,7 @@ const DAMPING_DECAY = 0.75
 const appWindow = getCurrentWebviewWindow()
 
 interface UseDeviceOptions {
-  onKeyboardPress?: () => void
+  onKeyboardPress?: (key: string) => void
 }
 
 export function useDevice(options: UseDeviceOptions = {}) {
@@ -194,7 +194,7 @@ export function useDevice(options: UseDeviceOptions = {}) {
 
     const activity = recordDeviceActivity(kind, value)
 
-    if (activity === 'keyboard') options.onKeyboardPress?.()
+    if (activity === 'keyboard' && kind === 'KeyboardPress') options.onKeyboardPress?.(value)
 
     if (kind === 'KeyboardPress' || kind === 'KeyboardRelease') {
       const nextValue = getSupportedKey(value)
